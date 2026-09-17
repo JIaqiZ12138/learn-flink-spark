@@ -28,19 +28,25 @@ Thumbs.db
 
 # ---------------- 日志与临时文件 ----------------
 *.log
-logs/
 *.hprof
 # drawio 自动生成的备份文件（保存时留下上一版）
 .$*.drawio.bkp
 
 # ---------------- Flink / Spark 运行时产物 ----------------
-flink-web-upload/
-output/
-checkpoints/
-savepoints/
-spark-warehouse/
-metastore_db/
-derby.log
+# 必须用前导 / 锚定到仓库根目录！
+# 裸写 output/ 、checkpoints/ 、savepoints/ 、logs/ 会匹配**任意层级**的同名目录，
+# 从而吞掉 Flink 源码里合法的 Java 包目录，例如：
+#   flink-libraries/flink-state-processing-api/src/main/java/.../state/api/output/
+#   flink-runtime/src/main/java/.../rest/messages/job/savepoints/
+# 实测会丢掉上游 110 个已跟踪文件，其中整个 output 包缺失会导致编译失败。
+/output/
+/checkpoints/
+/savepoints/
+/logs/
+/flink-web-upload/
+/spark-warehouse/
+/metastore_db/
+/derby.log
 
 # 注意：flink-1.20-source/ 刻意**不**在此忽略。
 # 它被 .gitignore 忽略时，IntelliJ 会把它当作 Excluded/Ignored 目录（橙色图标），
