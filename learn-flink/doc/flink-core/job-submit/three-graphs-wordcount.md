@@ -1,6 +1,6 @@
 # 一个 WordCount 看懂 Flink 的三张图：StreamGraph / JobGraph / ExecutionGraph
 
-> 配套代码：`learn-flink/src/main/java/com/learn/flink/sample/GraphComparisonJob.java`
+> 配套代码：`learn-flink/src/main/java/com/jiaqiz/flink/sample/GraphComparisonJob.java`
 > 配套图：`doc/assets/` 下的 [`three-graphs-comparison.drawio`](../../assets/three-graphs-comparison.drawio)（源文件） · [`three-graphs-comparison.png`](../../assets/three-graphs-comparison.png)（图片）
 > 环境：Flink 1.20.4 · JDK 17 · 本地 MiniCluster
 
@@ -314,7 +314,7 @@ for (AccessExecutionJobVertex ejv : g.getVerticesTopologically()) {
 
 ```bash
 cd learn-flink-spark
-mvn -pl learn-flink compile exec:exec -Dmain.class=com.learn.flink.sample.GraphComparisonJob
+mvn -pl learn-flink compile exec:exec -Dmain.class=com.jiaqiz.flink.sample.GraphComparisonJob
 ```
 
 ### 配套的三张图

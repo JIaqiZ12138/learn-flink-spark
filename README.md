@@ -40,7 +40,7 @@
 
 ```mermaid
 graph TD
-    ROOT["📦 learn-flink-spark<br/><i>parent pom · com.learn</i>"]
+    ROOT["📦 learn-flink-spark<br/><i>parent pom · com.jiaqiz</i>"]
 
     ROOT --> FLINK["🐿️ learn-flink<br/><i>Apache Flink 1.20.4</i>"]
     ROOT --> SPARK["⚡ learn-spark<br/><i>Apache Spark 3.5.8</i>"]
@@ -125,7 +125,7 @@ graph TD
 
 </details>
 
-#### 代码实战 —— `learn-flink/src/main/java/com/learn/flink/`
+#### 代码实战 —— `learn-flink/src/main/java/com/jiaqiz/flink/`
 
 每个包下都有 `package-info.java` 写明练习要点。
 
@@ -187,7 +187,7 @@ graph TD
 
 </details>
 
-#### 代码实战 —— `learn-spark/src/main/java/com/learn/spark/`
+#### 代码实战 —— `learn-spark/src/main/java/com/jiaqiz/spark/`
 
 | 包 | 内容 | 对应笔记 | 状态 |
 |---|---|---|---|
@@ -238,7 +238,7 @@ learn-flink-spark/
 │   │   ├── flink-cdc/               #    CDC（6 主题）
 │   │   └── flink-agent/             #    Agent（5 主题）
 │   └── src/main/                    # ── 轴二：代码实战 ──
-│       ├── java/com/learn/flink/    #    15 个实战包（每个含 package-info.java）
+│       ├── java/com/jiaqiz/flink/    #    15 个实战包（每个含 package-info.java）
 │       │   ├── sample/              #      ✅ 快速开始（已实现）
 │       │   ├── operators/  process/  window/  watermark/
 │       │   ├── state/  checkpoint/  keyed/  partitioner/
@@ -256,7 +256,7 @@ learn-flink-spark/
     │   ├── spark-streaming/         #    流处理（4 主题）
     │   └── spark-mllib/             #    机器学习（2 主题）
     └── src/main/                    # ── 轴二：代码实战 ──
-        ├── java/com/learn/spark/    #    13 个实战包
+        ├── java/com/jiaqiz/spark/    #    13 个实战包
         │   ├── sample/              #      ✅ 快速开始（已实现）
         │   ├── operators/  dataframe/  sql/  catalyst/
         │   ├── partitioner/  broadcast/  udf/  datasource/

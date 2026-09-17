@@ -5,7 +5,7 @@
     <modelVersion>4.0.0</modelVersion>
 
     <parent>
-        <groupId>com.learn</groupId>
+        <groupId>com.jiaqiz</groupId>
         <artifactId>learn-flink-spark</artifactId>
         <version>1.0.0-SNAPSHOT</version>
     </parent>
@@ -15,7 +15,7 @@
     <description>Apache Flink 源码研读与实战</description>
 
     <properties>
-        <main.class>com.learn.flink.sample.WordCountJob</main.class>
+        <main.class>com.jiaqiz.flink.sample.WordCountJob</main.class>
     </properties>
 
     <dependencies>
