@@ -1,0 +1,589 @@
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
+ *
+ *    http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package org.apache.flink.runtime.checkpoint;
+
+import org.apache.flink.runtime.OperatorIDPair;
+import org.apache.flink.runtime.checkpoint.InflightDataRescalingDescriptor.InflightDataGateOrPartitionRescalingDescriptor;
+import org.apache.flink.runtime.checkpoint.InflightDataRescalingDescriptor.InflightDataGateOrPartitionRescalingDescriptor.MappingType;
+import org.apache.flink.runtime.executiongraph.ExecutionJobVertex;
+import org.apache.flink.runtime.executiongraph.IntermediateResult;
+import org.apache.flink.runtime.io.network.api.writer.SubtaskStateMapper;
+import org.apache.flink.runtime.jobgraph.IntermediateDataSetID;
+import org.apache.flink.runtime.jobgraph.OperatorID;
+import org.apache.flink.runtime.jobgraph.OperatorInstanceID;
+import org.apache.flink.runtime.state.InputChannelStateHandle;
+import org.apache.flink.runtime.state.KeyedStateHandle;
+import org.apache.flink.runtime.state.OperatorStateHandle;
+import org.apache.flink.runtime.state.ResultSubpartitionStateHandle;
+import org.apache.flink.runtime.state.StateObject;
+import org.apache.flink.util.CollectionUtil;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
+
+import java.util.Arrays;
+import java.util.Collection;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Optional;
+import java.util.Set;
+import java.util.function.Function;
+import java.util.stream.Collectors;
+import java.util.stream.IntStream;
+
+import static java.util.Collections.emptySet;
+import static org.apache.flink.util.Preconditions.checkNotNull;
+import static org.apache.flink.util.Preconditions.checkState;
+
+/**
+ * Used by {@link StateAssignmentOperation} to store temporal information while creating {@link
+ * OperatorSubtaskState}.
+ */
+class TaskStateAssignment {
+    private static final Logger LOG = LoggerFactory.getLogger(TaskStateAssignment.class);
+
+    final ExecutionJobVertex executionJobVertex;
+    final Map<OperatorID, OperatorState> oldState;
+    final boolean hasNonFinishedState;
+    final boolean isFullyFinished;
+    final int newParallelism;
+    final OperatorID inputOperatorID;
+    final OperatorID outputOperatorID;
+
+    /** The InputGate set that containing input buffer state. */
+    private final Set<Integer> inputStateGates;
+
+    /** The ResultPartition set that containing input buffer state. */
+    private final Set<Integer> outputStatePartitions;
+
+    final Map<OperatorInstanceID, List<OperatorStateHandle>> subManagedOperatorState;
+    final Map<OperatorInstanceID, List<OperatorStateHandle>> subRawOperatorState;
+    final Map<OperatorInstanceID, List<KeyedStateHandle>> subManagedKeyedState;
+    final Map<OperatorInstanceID, List<KeyedStateHandle>> subRawKeyedState;
+
+    final Map<OperatorInstanceID, List<InputChannelStateHandle>> inputChannelStates;
+    final Map<OperatorInstanceID, List<ResultSubpartitionStateHandle>> resultSubpartitionStates;
+    /** The subtask mapping when the output operator was rescaled. */
+    private final Map<Integer, SubtasksRescaleMapping> outputSubtaskMappings = new HashMap<>();
+    /** The subtask mapping when the input operator was rescaled. */
+    private final Map<Integer, SubtasksRescaleMapping> inputSubtaskMappings = new HashMap<>();
+
+    @Nullable private TaskStateAssignment[] downstreamAssignments;
+    @Nullable private TaskStateAssignment[] upstreamAssignments;
+    @Nullable private Boolean hasUpstreamOutputStates;
+    @Nullable private Boolean hasDownstreamInputStates;
+
+    private final Map<IntermediateDataSetID, TaskStateAssignment> consumerAssignment;
+    private final Map<ExecutionJobVertex, TaskStateAssignment> vertexAssignments;
+
+    public TaskStateAssignment(
+            ExecutionJobVertex executionJobVertex,
+            Map<OperatorID, OperatorState> oldState,
+            Map<IntermediateDataSetID, TaskStateAssignment> consumerAssignment,
+            Map<ExecutionJobVertex, TaskStateAssignment> vertexAssignments) {
+
+        this.executionJobVertex = executionJobVertex;
+        this.oldState = oldState;
+        this.hasNonFinishedState =
+                oldState.values().stream()
+                        .anyMatch(operatorState -> operatorState.getNumberCollectedStates() > 0);
+        this.isFullyFinished = oldState.values().stream().anyMatch(OperatorState::isFullyFinished);
+        if (isFullyFinished) {
+            checkState(
+                    oldState.values().stream().allMatch(OperatorState::isFullyFinished),
+                    "JobVertex could not have mixed finished and unfinished operators");
+        }
+
+        newParallelism = executionJobVertex.getParallelism();
+        this.consumerAssignment = checkNotNull(consumerAssignment);
+        this.vertexAssignments = checkNotNull(vertexAssignments);
+        final int expectedNumberOfSubtasks = newParallelism * oldState.size();
+
+        subManagedOperatorState =
+                CollectionUtil.newHashMapWithExpectedSize(expectedNumberOfSubtasks);
+        subRawOperatorState = CollectionUtil.newHashMapWithExpectedSize(expectedNumberOfSubtasks);
+        inputChannelStates = CollectionUtil.newHashMapWithExpectedSize(expectedNumberOfSubtasks);
+        resultSubpartitionStates =
+                CollectionUtil.newHashMapWithExpectedSize(expectedNumberOfSubtasks);
+        subManagedKeyedState = CollectionUtil.newHashMapWithExpectedSize(expectedNumberOfSubtasks);
+        subRawKeyedState = CollectionUtil.newHashMapWithExpectedSize(expectedNumberOfSubtasks);
+
+        final List<OperatorIDPair> operatorIDs = executionJobVertex.getOperatorIDs();
+        outputOperatorID = operatorIDs.get(0).getGeneratedOperatorID();
+        inputOperatorID = operatorIDs.get(operatorIDs.size() - 1).getGeneratedOperatorID();
+
+        inputStateGates = extractInputStateGates(oldState.get(inputOperatorID));
+        outputStatePartitions = extractOutputStatePartitions(oldState.get(outputOperatorID));
+    }
+
+    private static Set<Integer> extractInputStateGates(OperatorState operatorState) {
+        return operatorState.getStates().stream()
+                .map(OperatorSubtaskState::getInputChannelState)
+                .flatMap(Collection::stream)
+                .map(handle -> handle.getInfo().getGateIdx())
+                .collect(Collectors.toSet());
+    }
+
+    private static Set<Integer> extractOutputStatePartitions(OperatorState operatorState) {
+        return operatorState.getStates().stream()
+                .map(OperatorSubtaskState::getResultSubpartitionState)
+                .flatMap(Collection::stream)
+                .map(handle -> handle.getInfo().getPartitionIdx())
+                .collect(Collectors.toSet());
+    }
+
+    public boolean hasInputState() {
+        return !inputStateGates.isEmpty();
+    }
+
+    public boolean hasOutputState() {
+        return !outputStatePartitions.isEmpty();
+    }
+
+    public TaskStateAssignment[] getDownstreamAssignments() {
+        if (downstreamAssignments == null) {
+            downstreamAssignments =
+                    Arrays.stream(executionJobVertex.getProducedDataSets())
+                            .map(result -> consumerAssignment.get(result.getId()))
+                            .toArray(TaskStateAssignment[]::new);
+        }
+        return downstreamAssignments;
+    }
+
+    public TaskStateAssignment[] getUpstreamAssignments() {
+        if (upstreamAssignments == null) {
+            upstreamAssignments =
+                    executionJobVertex.getInputs().stream()
+                            .map(result -> vertexAssignments.get(result.getProducer()))
+                            .toArray(TaskStateAssignment[]::new);
+        }
+        return upstreamAssignments;
+    }
+
+    public OperatorSubtaskState getSubtaskState(OperatorInstanceID instanceID) {
+        checkState(
+                subManagedKeyedState.containsKey(instanceID)
+                        || !subRawKeyedState.containsKey(instanceID),
+                "If an operator has no managed key state, it should also not have a raw keyed state.");
+
+        final StateObjectCollection<InputChannelStateHandle> inputState =
+                getState(instanceID, inputChannelStates);
+        final StateObjectCollection<ResultSubpartitionStateHandle> outputState =
+                getState(instanceID, resultSubpartitionStates);
+        return OperatorSubtaskState.builder()
+                .setManagedOperatorState(getState(instanceID, subManagedOperatorState))
+                .setRawOperatorState(getState(instanceID, subRawOperatorState))
+                .setManagedKeyedState(getState(instanceID, subManagedKeyedState))
+                .setRawKeyedState(getState(instanceID, subRawKeyedState))
+                .setInputChannelState(inputState)
+                .setResultSubpartitionState(outputState)
+                .setInputRescalingDescriptor(
+                        createRescalingDescriptor(
+                                instanceID,
+                                inputOperatorID,
+                                getUpstreamAssignments(),
+                                inputSubtaskMappings,
+                                this::getInputMapping,
+                                true))
+                .setOutputRescalingDescriptor(
+                        createRescalingDescriptor(
+                                instanceID,
+                                outputOperatorID,
+                                getDownstreamAssignments(),
+                                outputSubtaskMappings,
+                                this::getOutputMapping,
+                                false))
+                .build();
+    }
+
+    public boolean hasUpstreamOutputStates() {
+        if (hasUpstreamOutputStates == null) {
+            hasUpstreamOutputStates =
+                    Arrays.stream(getUpstreamAssignments())
+                            .anyMatch(TaskStateAssignment::hasOutputState);
+        }
+        return hasUpstreamOutputStates;
+    }
+
+    public boolean hasDownstreamInputStates() {
+        if (hasDownstreamInputStates == null) {
+            hasDownstreamInputStates =
+                    Arrays.stream(getDownstreamAssignments())
+                            .anyMatch(TaskStateAssignment::hasInputState);
+        }
+        return hasDownstreamInputStates;
+    }
+
+    private InflightDataGateOrPartitionRescalingDescriptor log(
+            InflightDataGateOrPartitionRescalingDescriptor descriptor, int subtask, int partition) {
+        LOG.debug(
+                "created {} for task={} subtask={} partition={}",
+                descriptor,
+                executionJobVertex.getName(),
+                subtask,
+                partition);
+        return descriptor;
+    }
+
+    private InflightDataRescalingDescriptor log(
+            InflightDataRescalingDescriptor descriptor, int subtask) {
+        LOG.debug(
+                "created {} for task={} subtask={}",
+                descriptor,
+                executionJobVertex.getName(),
+                subtask);
+        return descriptor;
+    }
+
+    private InflightDataRescalingDescriptor createRescalingDescriptor(
+            OperatorInstanceID instanceID,
+            OperatorID expectedOperatorID,
+            TaskStateAssignment[] connectedAssignments,
+            Map<Integer, SubtasksRescaleMapping> subtaskGateOrPartitionMappings,
+            Function<Integer, SubtasksRescaleMapping> subtaskMappingCalculator,
+            boolean isInput) {
+        if (!expectedOperatorID.equals(instanceID.getOperatorId())) {
+            return InflightDataRescalingDescriptor.NO_RESCALE;
+        }
+
+        SubtasksRescaleMapping[] rescaledChannelsMappings =
+                IntStream.range(0, connectedAssignments.length)
+                        .mapToObj(
+                                index ->
+                                        getConnectedMapping(
+                                                isInput, index, connectedAssignments[index], false))
+                        .toArray(SubtasksRescaleMapping[]::new);
+
+        // no state on input and output, especially for any aligned checkpoint
+        if (subtaskGateOrPartitionMappings.isEmpty()
+                && Arrays.stream(rescaledChannelsMappings).allMatch(Objects::isNull)) {
+            return InflightDataRescalingDescriptor.NO_RESCALE;
+        }
+
+        InflightDataGateOrPartitionRescalingDescriptor[] gateOrPartitionDescriptors =
+                createGateOrPartitionRescalingDescriptors(
+                        instanceID,
+                        connectedAssignments,
+                        subtaskGateOrPartitionMappings,
+                        subtaskMappingCalculator,
+                        rescaledChannelsMappings,
+                        isInput);
+
+        if (Arrays.stream(gateOrPartitionDescriptors)
+                .allMatch(InflightDataGateOrPartitionRescalingDescriptor::isIdentity)) {
+            return log(InflightDataRescalingDescriptor.NO_RESCALE, instanceID.getSubtaskId());
+        } else {
+            return log(
+                    new InflightDataRescalingDescriptor(gateOrPartitionDescriptors),
+                    instanceID.getSubtaskId());
+        }
+    }
+
+    private InflightDataGateOrPartitionRescalingDescriptor[]
+            createGateOrPartitionRescalingDescriptors(
+                    OperatorInstanceID instanceID,
+                    TaskStateAssignment[] connectedAssignments,
+                    Map<Integer, SubtasksRescaleMapping> subtaskGateOrPartitionMappings,
+                    Function<Integer, SubtasksRescaleMapping> subtaskMappingCalculator,
+                    SubtasksRescaleMapping[] rescaledChannelsMappings,
+                    boolean isInput) {
+        return IntStream.range(0, rescaledChannelsMappings.length)
+                .mapToObj(
+                        partition -> {
+                            if (!hasInFlightData(isInput, partition)) {
+                                return InflightDataGateOrPartitionRescalingDescriptor.NO_STATE;
+                            }
+                            TaskStateAssignment connectedAssignment =
+                                    connectedAssignments[partition];
+                            SubtasksRescaleMapping rescaleMapping =
+                                    Optional.ofNullable(rescaledChannelsMappings[partition])
+                                            .orElseGet(
+                                                    () ->
+                                                            getConnectedMapping(
+                                                                    isInput,
+                                                                    partition,
+                                                                    connectedAssignment,
+                                                                    true));
+                            SubtasksRescaleMapping subtaskMapping =
+                                    Optional.ofNullable(
+                                                    subtaskGateOrPartitionMappings.get(partition))
+                                            .orElseGet(
+                                                    () ->
+                                                            subtaskMappingCalculator.apply(
+                                                                    partition));
+                            return getInflightDataGateOrPartitionRescalingDescriptor(
+                                    instanceID, partition, rescaleMapping, subtaskMapping);
+                        })
+                .toArray(InflightDataGateOrPartitionRescalingDescriptor[]::new);
+    }
+
+    private boolean hasInFlightData(boolean isInput, int gateOrPartitionIndex) {
+        if (isInput) {
+            return hasInFlightDataForInputGate(gateOrPartitionIndex);
+        } else {
+            return hasInFlightDataForResultPartition(gateOrPartitionIndex);
+        }
+    }
+
+    private InflightDataGateOrPartitionRescalingDescriptor
+            getInflightDataGateOrPartitionRescalingDescriptor(
+                    OperatorInstanceID instanceID,
+                    int partition,
+                    SubtasksRescaleMapping rescaleMapping,
+                    SubtasksRescaleMapping subtaskMapping) {
+
+        int[] oldSubtaskInstances =
+                subtaskMapping.rescaleMappings.getMappedIndexes(instanceID.getSubtaskId());
+
+        // no scaling or simple scale-up without the need of virtual
+        // channels.
+        boolean isIdentity =
+                (subtaskMapping.rescaleMappings.isIdentity()
+                                && rescaleMapping.getRescaleMappings().isIdentity())
+                        || oldSubtaskInstances.length == 0;
+
+        final Set<Integer> ambiguousSubtasks =
+                subtaskMapping.mayHaveAmbiguousSubtasks
+                        ? subtaskMapping.rescaleMappings.getAmbiguousTargets()
+                        : emptySet();
+        return log(
+                new InflightDataGateOrPartitionRescalingDescriptor(
+                        oldSubtaskInstances,
+                        rescaleMapping.getRescaleMappings(),
+                        ambiguousSubtasks,
+                        isIdentity ? MappingType.IDENTITY : MappingType.RESCALING),
+                instanceID.getSubtaskId(),
+                partition);
+    }
+
+    private <T extends StateObject> StateObjectCollection<T> getState(
+            OperatorInstanceID instanceID,
+            Map<OperatorInstanceID, List<T>> subManagedOperatorState) {
+        List<T> value = subManagedOperatorState.get(instanceID);
+        return value != null ? new StateObjectCollection<>(value) : StateObjectCollection.empty();
+    }
+
+    private SubtasksRescaleMapping getOutputMapping(int assignmentIndex, boolean recompute) {
+        SubtasksRescaleMapping mapping = outputSubtaskMappings.get(assignmentIndex);
+        if (recompute && mapping == null) {
+            return getOutputMapping(assignmentIndex);
+        } else {
+            return mapping;
+        }
+    }
+
+    private SubtasksRescaleMapping getOutputMapping(
+            IntermediateDataSetID resultId, boolean recompute) {
+        return getOutputMapping(findResultPartitionIndex(resultId), recompute);
+    }
+
+    private SubtasksRescaleMapping getInputMapping(int assignmentIndex, boolean recompute) {
+        SubtasksRescaleMapping mapping = inputSubtaskMappings.get(assignmentIndex);
+        if (recompute && mapping == null) {
+            return getInputMapping(assignmentIndex);
+        } else {
+            return mapping;
+        }
+    }
+
+    private SubtasksRescaleMapping getInputMapping(
+            IntermediateDataSetID resultId, boolean recompute) {
+        return getInputMapping(findInputGateIndex(resultId), recompute);
+    }
+
+    /**
+     * Resolves the mapping on {@code connectedAssignment} that corresponds to {@code index} on
+     * {@code this} assignment, disambiguating by {@link IntermediateDataSetID} rather than by array
+     * position (multiple edges can connect the same pair of job vertices).
+     */
+    private SubtasksRescaleMapping getConnectedMapping(
+            boolean isInput,
+            int index,
+            TaskStateAssignment connectedAssignment,
+            boolean recompute) {
+        if (isInput) {
+            IntermediateDataSetID resultId = executionJobVertex.getInputs().get(index).getId();
+            return connectedAssignment.getOutputMapping(resultId, recompute);
+        } else {
+            IntermediateDataSetID resultId =
+                    executionJobVertex.getProducedDataSets()[index].getId();
+            return connectedAssignment.getInputMapping(resultId, recompute);
+        }
+    }
+
+    public SubtasksRescaleMapping getOutputMapping(int partitionIndex) {
+        final TaskStateAssignment downstreamAssignment = getDownstreamAssignments()[partitionIndex];
+        final IntermediateResult output = executionJobVertex.getProducedDataSets()[partitionIndex];
+        final int gateIndex = downstreamAssignment.executionJobVertex.getInputs().indexOf(output);
+
+        final SubtaskStateMapper mapper =
+                checkNotNull(
+                        downstreamAssignment
+                                .executionJobVertex
+                                .getJobVertex()
+                                .getInputs()
+                                .get(gateIndex)
+                                .getUpstreamSubtaskStateMapper(),
+                        "No channel rescaler found during rescaling of channel state");
+        final RescaleMappings mapping =
+                mapper.getNewToOldSubtasksMapping(
+                        oldState.get(outputOperatorID).getParallelism(), newParallelism);
+        return outputSubtaskMappings.compute(
+                partitionIndex,
+                (idx, oldMapping) ->
+                        checkSubtaskMapping(oldMapping, mapping, mapper.isAmbiguous()));
+    }
+
+    public SubtasksRescaleMapping getInputMapping(int gateIndex) {
+        final SubtaskStateMapper mapper =
+                checkNotNull(
+                        executionJobVertex
+                                .getJobVertex()
+                                .getInputs()
+                                .get(gateIndex)
+                                .getDownstreamSubtaskStateMapper(),
+                        "No channel rescaler found during rescaling of channel state");
+        final RescaleMappings mapping =
+                mapper.getNewToOldSubtasksMapping(
+                        oldState.get(inputOperatorID).getParallelism(), newParallelism);
+
+        return inputSubtaskMappings.compute(
+                gateIndex,
+                (idx, oldMapping) ->
+                        checkSubtaskMapping(oldMapping, mapping, mapper.isAmbiguous()));
+    }
+
+    public boolean hasInFlightDataForInputGate(int gateIndex) {
+        // Check own input state for this gate
+        if (inputStateGates.contains(gateIndex)) {
+            return true;
+        }
+
+        // Check upstream output state for this gate
+        TaskStateAssignment upstreamAssignment = getUpstreamAssignments()[gateIndex];
+        if (upstreamAssignment != null && upstreamAssignment.hasOutputState()) {
+            IntermediateResult inputResult = executionJobVertex.getInputs().get(gateIndex);
+            IntermediateDataSetID resultId = inputResult.getId();
+            return upstreamAssignment.outputStatePartitions.contains(
+                    upstreamAssignment.findResultPartitionIndex(resultId));
+        }
+
+        return false;
+    }
+
+    public boolean hasInFlightDataForResultPartition(int partitionIndex) {
+        // Check own output state for this partition
+        if (outputStatePartitions.contains(partitionIndex)) {
+            return true;
+        }
+
+        // Check downstream input state for this partition
+        TaskStateAssignment downstreamAssignment = getDownstreamAssignments()[partitionIndex];
+
+        if (downstreamAssignment != null && downstreamAssignment.hasInputState()) {
+            IntermediateResult producedResult =
+                    executionJobVertex.getProducedDataSets()[partitionIndex];
+            IntermediateDataSetID resultId = producedResult.getId();
+            return downstreamAssignment.inputStateGates.contains(
+                    downstreamAssignment.findInputGateIndex(resultId));
+        }
+        return false;
+    }
+
+    private int findInputGateIndex(IntermediateDataSetID resultId) {
+        List<IntermediateResult> inputs = executionJobVertex.getInputs();
+        for (int i = 0; i < inputs.size(); i++) {
+            if (inputs.get(i).getId().equals(resultId)) {
+                return i;
+            }
+        }
+        throw new IllegalArgumentException(
+                "No input gate found for intermediate data set "
+                        + resultId
+                        + " in "
+                        + executionJobVertex.getName());
+    }
+
+    private int findResultPartitionIndex(IntermediateDataSetID resultId) {
+        IntermediateResult[] producedDataSets = executionJobVertex.getProducedDataSets();
+        for (int i = 0; i < producedDataSets.length; i++) {
+            if (producedDataSets[i].getId().equals(resultId)) {
+                return i;
+            }
+        }
+        throw new IllegalArgumentException(
+                "No result partition found for intermediate data set "
+                        + resultId
+                        + " in "
+                        + executionJobVertex.getName());
+    }
+
+    @Override
+    public String toString() {
+        return "TaskStateAssignment for " + executionJobVertex.getName();
+    }
+
+    private static @Nonnull SubtasksRescaleMapping checkSubtaskMapping(
+            @Nullable SubtasksRescaleMapping oldMapping,
+            RescaleMappings mapping,
+            boolean mayHaveAmbiguousSubtasks) {
+        if (oldMapping == null) {
+            return new SubtasksRescaleMapping(mapping, mayHaveAmbiguousSubtasks);
+        }
+        if (!oldMapping.rescaleMappings.equals(mapping)) {
+            throw new IllegalStateException(
+                    "Incompatible subtask mappings: are multiple operators "
+                            + "ingesting/producing intermediate results with varying degrees of parallelism?"
+                            + "Found "
+                            + oldMapping
+                            + " and "
+                            + mapping
+                            + ".");
+        }
+        return new SubtasksRescaleMapping(
+                mapping, oldMapping.mayHaveAmbiguousSubtasks || mayHaveAmbiguousSubtasks);
+    }
+
+    static class SubtasksRescaleMapping {
+        private final RescaleMappings rescaleMappings;
+        /**
+         * If channel data cannot be safely divided into subtasks (several new subtask indexes are
+         * associated with the same old subtask index). Mostly used for range partitioners.
+         */
+        private final boolean mayHaveAmbiguousSubtasks;
+
+        private SubtasksRescaleMapping(
+                RescaleMappings rescaleMappings, boolean mayHaveAmbiguousSubtasks) {
+            this.rescaleMappings = rescaleMappings;
+            this.mayHaveAmbiguousSubtasks = mayHaveAmbiguousSubtasks;
+        }
+
+        public RescaleMappings getRescaleMappings() {
+            return rescaleMappings;
+        }
+
+        public boolean isMayHaveAmbiguousSubtasks() {
+            return mayHaveAmbiguousSubtasks;
+        }
+    }
+}
