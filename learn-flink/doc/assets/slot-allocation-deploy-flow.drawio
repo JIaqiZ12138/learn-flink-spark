@@ -1,0 +1,175 @@
+<mxfile host="Electron">
+  <diagram name="Slot 申请与 Task 部署" id="sched-56">
+    <mxGraphModel dx="1600" dy="1200" grid="0" gridSize="10" guides="0" tooltips="1" connect="1" arrows="1" fold="1" page="0" pageScale="1" pageWidth="2600" pageHeight="1900" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="c-1" parent="1" style="rounded=1;whiteSpace=wrap;html=1;opacity=60;fontSize=11;" value="" vertex="1">
+  <mxGeometry height="1340" width="460" x="40" y="200" as="geometry" />
+</mxCell>
+        <mxCell id="c-2" parent="1" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;rounded=0;fontSize=13;" value="&lt;b&gt;① JobMaster 主线程&lt;/b&gt;&lt;br&gt;调度栈 / 部署器" vertex="1">
+  <mxGeometry height="56" width="460" x="40" y="200" as="geometry" />
+</mxCell>
+        <mxCell id="c-3" parent="1" style="rounded=1;whiteSpace=wrap;html=1;opacity=60;fontSize=11;" value="" vertex="1">
+  <mxGeometry height="1340" width="460" x="540" y="200" as="geometry" />
+</mxCell>
+        <mxCell id="c-4" parent="1" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;rounded=0;fontSize=13;" value="&lt;b&gt;② SlotPool 账本&lt;/b&gt;&lt;br&gt;DeclarativeSlotPoolBridge" vertex="1">
+  <mxGeometry height="56" width="460" x="540" y="200" as="geometry" />
+</mxCell>
+        <mxCell id="c-5" parent="1" style="rounded=1;whiteSpace=wrap;html=1;opacity=60;fontSize=11;" value="" vertex="1">
+  <mxGeometry height="1340" width="460" x="1040" y="200" as="geometry" />
+</mxCell>
+        <mxCell id="c-6" parent="1" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;rounded=0;fontSize=13;" value="&lt;b&gt;③ ResourceManager&lt;/b&gt;&lt;br&gt;FineGrainedSlotManager（同 AM 进程）" vertex="1">
+  <mxGeometry height="56" width="460" x="1040" y="200" as="geometry" />
+</mxCell>
+        <mxCell id="c-7" parent="1" style="rounded=1;whiteSpace=wrap;html=1;opacity=60;fontSize=11;" value="" vertex="1">
+  <mxGeometry height="1340" width="460" x="1540" y="200" as="geometry" />
+</mxCell>
+        <mxCell id="c-8" parent="1" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;rounded=0;fontSize=13;" value="&lt;b&gt;④ YARN / 容器&lt;/b&gt;&lt;br&gt;ActiveResourceManager → Driver" vertex="1">
+  <mxGeometry height="56" width="460" x="1540" y="200" as="geometry" />
+</mxCell>
+        <mxCell id="c-9" parent="1" style="rounded=1;whiteSpace=wrap;html=1;opacity=60;fontSize=11;" value="" vertex="1">
+  <mxGeometry height="1340" width="460" x="2040" y="200" as="geometry" />
+</mxCell>
+        <mxCell id="c-10" parent="1" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;rounded=0;fontSize=13;" value="&lt;b&gt;⑤ TaskManager JVM&lt;/b&gt;&lt;br&gt;TaskExecutor → Task" vertex="1">
+  <mxGeometry height="56" width="460" x="2040" y="200" as="geometry" />
+</mxCell>
+        <mxCell id="c-11" parent="1" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;rounded=0;fontSize=15;" value="&lt;b&gt;阶段 A —— 申请逻辑 slot：JM 只声明需求（future 立刻返回，不阻塞）&lt;/b&gt;" vertex="1">
+  <mxGeometry height="44" width="2460" x="40" y="136" as="geometry" />
+</mxCell>
+        <mxCell id="c-12" parent="1" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;rounded=0;fontSize=15;" value="&lt;b&gt;阶段 B —— 绑定 slot 并下发 Task（全部 slot 到齐后才逐批下发）&lt;/b&gt;" vertex="1">
+  <mxGeometry height="44" width="2460" x="40" y="1112" as="geometry" />
+</mxCell>
+        <mxCell id="c-13" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontSize=11;fillColor=#dae8fc;strokeColor=#6c8ebf;" value="&lt;b&gt;1&lt;/b&gt;　PipelinedRegionSchedulingStrategy.scheduleRegion()&lt;br&gt;→ SchedulerOperations.allocateSlotsAndDeploy(region 顶点列表)" vertex="1">
+  <mxGeometry height="64" width="420" x="60" y="228" as="geometry" />
+</mxCell>
+        <mxCell id="c-14" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontSize=11;fillColor=#dae8fc;strokeColor=#6c8ebf;" value="&lt;b&gt;2&lt;/b&gt;　DefaultScheduler.allocateSlotsAndDeploy()&lt;br&gt;&lt;b&gt;记录顶点版本号&lt;/b&gt; → 取当前 Execution" vertex="1">
+  <mxGeometry height="64" width="420" x="60" y="312" as="geometry" />
+</mxCell>
+        <mxCell id="c-15" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontSize=11;fillColor=#dae8fc;strokeColor=#6c8ebf;" value="&lt;b&gt;3&lt;/b&gt;　DefaultExecutionDeployer.allocateSlotsAndDeploy()&lt;br&gt;校验 CREATED → 转 SCHEDULED → allocateSlotsFor()" vertex="1">
+  <mxGeometry height="64" width="420" x="60" y="396" as="geometry" />
+</mxCell>
+        <mxCell id="c-16" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontSize=11;fillColor=#dae8fc;strokeColor=#6c8ebf;" value="&lt;b&gt;4&lt;/b&gt;　SlotSharingExecutionSlotAllocator&lt;br&gt;按 ExecutionSlotSharingGroup 分组：一组只发一个物理 slot 请求" vertex="1">
+  <mxGeometry height="64" width="420" x="60" y="480" as="geometry" />
+</mxCell>
+        <mxCell id="c-17" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontSize=11;fillColor=#e1d5e7;strokeColor=#9673a6;" value="&lt;b&gt;5&lt;/b&gt;　internalRequestNewAllocatedSlot()&lt;br&gt;pendingRequests.put() + 资源需求 +1&lt;br&gt;&lt;i&gt;★ 不发任何同步 RPC&lt;/i&gt;" vertex="1">
+  <mxGeometry height="84" width="420" x="560" y="564" as="geometry" />
+</mxCell>
+        <mxCell id="c-18" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontSize=11;fillColor=#d5e8d4;strokeColor=#82b366;" value="&lt;b&gt;6&lt;/b&gt;　ResourceManager.declareRequiredResources()&lt;br&gt;→ FineGrainedSlotManager.processResourceRequirements()&lt;br&gt;&lt;i&gt;【JM → RM 跨界 RPC：声明式需求】&lt;/i&gt;" vertex="1">
+  <mxGeometry height="84" width="420" x="1060" y="564" as="geometry" />
+</mxCell>
+        <mxCell id="c-19" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontSize=11;fillColor=#d5e8d4;strokeColor=#82b366;" value="&lt;b&gt;7&lt;/b&gt;　DefaultResourceAllocationStrategy.tryFulfillRequirements()&lt;br&gt;① 先分已有 TM 的剩余资源　② 不够就循环造 PendingTaskManager" vertex="1">
+  <mxGeometry height="84" width="420" x="1060" y="672" as="geometry" />
+</mxCell>
+        <mxCell id="c-20" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontSize=11;fillColor=#ffe6cc;strokeColor=#d79b00;" value="&lt;b&gt;8&lt;/b&gt;　ActiveResourceManager.checkResourceDeclarations()&lt;br&gt;diff：已有 worker − 声明数 → requestNewWorker()&lt;br&gt;→ YarnResourceManagerDriver.requestResource()" vertex="1">
+  <mxGeometry height="84" width="420" x="1560" y="780" as="geometry" />
+</mxCell>
+        <mxCell id="c-21" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontSize=11;fillColor=#d5e8d4;strokeColor=#82b366;" value="&lt;b&gt;9&lt;/b&gt;　DefaultSlotStatusSyncer.allocateSlot()&lt;br&gt;→ TaskExecutorGateway.requestSlot()&lt;br&gt;&lt;i&gt;【RM → TM】发起方是 RM，不是 JM&lt;/i&gt;" vertex="1">
+  <mxGeometry height="84" width="420" x="1060" y="888" as="geometry" />
+</mxCell>
+        <mxCell id="c-22" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontSize=11;fillColor=#f8cecc;strokeColor=#b85450;" value="&lt;b&gt;10&lt;/b&gt;　TaskExecutor.requestSlot()&lt;br&gt;校验 RM 身份 → 落盘 allocation → TaskSlotTable 占位&lt;br&gt;→ offerSlotsToJobManager()" vertex="1">
+  <mxGeometry height="84" width="420" x="2060" y="888" as="geometry" />
+</mxCell>
+        <mxCell id="c-23" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontSize=11;fillColor=#e1d5e7;strokeColor=#9673a6;" value="&lt;b&gt;11&lt;/b&gt;　JobMaster.offerSlots() → SlotPool.offerSlots()&lt;br&gt;&lt;b&gt;两轮撮合&lt;/b&gt;：先全部 reserveFreeSlot，再统一 fulfill&lt;br&gt;&lt;i&gt;【TM → JM：槽位被“推”回来，JM 从不主动拉】&lt;/i&gt;" vertex="1">
+  <mxGeometry height="94" width="420" x="560" y="996" as="geometry" />
+</mxCell>
+        <mxCell id="e-24" edge="1" parent="1" source="c-13" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;fontSize=10;exitX=0.5;exitY=1.0;exitDx=0;exitDy=0;entryX=0.5;entryY=0.0;entryDx=0;entryDy=0;" target="c-14" value="">
+  <mxGeometry relative="1" as="geometry" />
+</mxCell>
+        <mxCell id="e-25" edge="1" parent="1" source="c-14" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;fontSize=10;exitX=0.5;exitY=1.0;exitDx=0;exitDy=0;entryX=0.5;entryY=0.0;entryDx=0;entryDy=0;" target="c-15" value="">
+  <mxGeometry relative="1" as="geometry" />
+</mxCell>
+        <mxCell id="e-26" edge="1" parent="1" source="c-15" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;fontSize=10;exitX=0.5;exitY=1.0;exitDx=0;exitDy=0;entryX=0.5;entryY=0.0;entryDx=0;entryDy=0;" target="c-16" value="">
+  <mxGeometry relative="1" as="geometry" />
+</mxCell>
+        <mxCell id="e-27" edge="1" parent="1" source="c-16" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;fontSize=10;exitX=0.5;exitY=1.0;exitDx=0;exitDy=0;entryX=0.5;entryY=0.0;entryDx=0;entryDy=0;" target="c-17" value="">
+  <mxGeometry relative="1" as="geometry" />
+</mxCell>
+        <mxCell id="e-28" edge="1" parent="1" source="c-17" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;fontSize=10;exitX=1.0;exitY=0.5;exitDx=0;exitDy=0;entryX=0.0;entryY=0.5;entryDx=0;entryDy=0;" target="c-18" value="">
+  <mxGeometry relative="1" as="geometry" />
+</mxCell>
+        <mxCell id="l-29" connectable="0" parent="e-28" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];" value="声明需求" vertex="1">
+  <mxGeometry relative="1" x="0.05" y="2" as="geometry"><mxPoint as="offset" /></mxGeometry>
+</mxCell>
+        <mxCell id="e-30" edge="1" parent="1" source="c-18" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;fontSize=10;exitX=0.5;exitY=1.0;exitDx=0;exitDy=0;entryX=0.5;entryY=0.0;entryDx=0;entryDy=0;" target="c-19" value="">
+  <mxGeometry relative="1" as="geometry" />
+</mxCell>
+        <mxCell id="e-31" edge="1" parent="1" source="c-19" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;fontSize=10;exitX=1.0;exitY=0.5;exitDx=0;exitDy=0;entryX=0.0;entryY=0.5;entryDx=0;entryDy=0;" target="c-20" value="">
+  <mxGeometry relative="1" as="geometry" />
+</mxCell>
+        <mxCell id="l-32" connectable="0" parent="e-31" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];" value="缺 worker 时" vertex="1">
+  <mxGeometry relative="1" x="0.05" y="2" as="geometry"><mxPoint as="offset" /></mxGeometry>
+</mxCell>
+        <mxCell id="e-33" edge="1" parent="1" source="c-19" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;fontSize=10;exitX=0.5;exitY=1.0;exitDx=0;exitDy=0;entryX=0.5;entryY=0.0;entryDx=0;entryDy=0;" target="c-21" value="">
+  <mxGeometry relative="1" as="geometry" />
+</mxCell>
+        <mxCell id="l-34" connectable="0" parent="e-33" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];" value="已有 TM 可满足时" vertex="1">
+  <mxGeometry relative="1" x="0.05" y="2" as="geometry"><mxPoint as="offset" /></mxGeometry>
+</mxCell>
+        <mxCell id="e-35" edge="1" parent="1" source="c-21" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;fontSize=10;exitX=1.0;exitY=0.5;exitDx=0;exitDy=0;entryX=0.0;entryY=0.5;entryDx=0;entryDy=0;" target="c-22" value="">
+  <mxGeometry relative="1" as="geometry" />
+</mxCell>
+        <mxCell id="l-36" connectable="0" parent="e-35" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];" value="requestSlot()【RM → TM】" vertex="1">
+  <mxGeometry relative="1" x="0.05" y="2" as="geometry"><mxPoint as="offset" /></mxGeometry>
+</mxCell>
+        <mxCell id="e-37" edge="1" parent="1" source="c-22" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;fontSize=10;exitX=0.0;exitY=0.5;exitDx=0;exitDy=0;entryX=1.0;entryY=0.5;entryDx=0;entryDy=0;" target="c-23" value="">
+  <mxGeometry relative="1" as="geometry" />
+</mxCell>
+        <mxCell id="l-38" connectable="0" parent="e-37" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];" value="offerSlots()【TM → JM】" vertex="1">
+  <mxGeometry relative="1" x="0.05" y="2" as="geometry"><mxPoint as="offset" /></mxGeometry>
+</mxCell>
+        <mxCell id="c-39" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontSize=11;fillColor=#e1d5e7;strokeColor=#9673a6;" value="&lt;b&gt;12&lt;/b&gt;　PendingRequest.fulfill(slot)&lt;br&gt;→ future 完成，回到 JM 的 assignResource()" vertex="1">
+  <mxGeometry height="70" width="420" x="560" y="1190" as="geometry" />
+</mxCell>
+        <mxCell id="c-40" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontSize=11;fillColor=#dae8fc;strokeColor=#6c8ebf;" value="&lt;b&gt;13&lt;/b&gt;　assignResource()：&lt;b&gt;版本校验&lt;/b&gt;&lt;br&gt;→ Execution.tryAssignResource(逻辑 slot)&lt;br&gt;&lt;i&gt;★ slot 归属确定的唯一位置&lt;/i&gt;" vertex="1">
+  <mxGeometry height="84" width="420" x="60" y="1190" as="geometry" />
+</mxCell>
+        <mxCell id="c-41" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontSize=11;fillColor=#dae8fc;strokeColor=#6c8ebf;" value="&lt;b&gt;14&lt;/b&gt;　deployAll() → Execution.deploy()&lt;br&gt;SCHEDULED → DEPLOYING → 造 TDD&lt;br&gt;→ submitTask()（跑在 futureExecutor 上）" vertex="1">
+  <mxGeometry height="84" width="420" x="60" y="1300" as="geometry" />
+</mxCell>
+        <mxCell id="c-42" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontSize=11;fillColor=#f8cecc;strokeColor=#b85450;" value="&lt;b&gt;15&lt;/b&gt;　TaskExecutor.submitTask()&lt;br&gt;三段校验：JM 连接 → leader 代次 → slot 仍 active&lt;br&gt;→ new Task() → addTask() → startTaskThread()" vertex="1">
+  <mxGeometry height="94" width="420" x="2060" y="1300" as="geometry" />
+</mxCell>
+        <mxCell id="c-43" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontSize=11;fillColor=#f8cecc;strokeColor=#b85450;" value="&lt;b&gt;16&lt;/b&gt;　Task.run() → restoreAndInvoke()&lt;br&gt;INITIALIZING → restore() → RUNNING → invoke()&lt;br&gt;&lt;b&gt;★ 用户代码在这里开始执行&lt;/b&gt;" vertex="1">
+  <mxGeometry height="84" width="420" x="2060" y="1420" as="geometry" />
+</mxCell>
+        <mxCell id="e-44" edge="1" parent="1" source="c-23" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;fontSize=10;exitX=0.5;exitY=1.0;exitDx=0;exitDy=0;entryX=0.5;entryY=0.0;entryDx=0;entryDy=0;" target="c-39" value="">
+  <mxGeometry relative="1" as="geometry" />
+</mxCell>
+        <mxCell id="e-45" edge="1" parent="1" source="c-39" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;fontSize=10;exitX=0.0;exitY=0.5;exitDx=0;exitDy=0;entryX=1.0;entryY=0.5;entryDx=0;entryDy=0;" target="c-40" value="">
+  <mxGeometry relative="1" as="geometry" />
+</mxCell>
+        <mxCell id="l-46" connectable="0" parent="e-45" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];" value="撮合成功" vertex="1">
+  <mxGeometry relative="1" x="0.05" y="2" as="geometry"><mxPoint as="offset" /></mxGeometry>
+</mxCell>
+        <mxCell id="e-47" edge="1" parent="1" source="c-40" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;fontSize=10;exitX=0.5;exitY=1.0;exitDx=0;exitDy=0;entryX=0.5;entryY=0.0;entryDx=0;entryDy=0;" target="c-41" value="">
+  <mxGeometry relative="1" as="geometry" />
+</mxCell>
+        <mxCell id="e-48" edge="1" parent="1" source="c-41" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;fontSize=10;exitX=1.0;exitY=0.5;exitDx=0;exitDy=0;entryX=0.0;entryY=0.5;entryDx=0;entryDy=0;" target="c-42" value="">
+  <mxGeometry relative="1" as="geometry" />
+</mxCell>
+        <mxCell id="l-49" connectable="0" parent="e-48" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];" value="submitTask(TDD)【JM → TM】" vertex="1">
+  <mxGeometry relative="1" x="0.05" y="2" as="geometry"><mxPoint as="offset" /></mxGeometry>
+</mxCell>
+        <mxCell id="e-50" edge="1" parent="1" source="c-42" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;fontSize=10;exitX=0.5;exitY=1.0;exitDx=0;exitDy=0;entryX=0.5;entryY=0.0;entryDx=0;entryDy=0;" target="c-43" value="">
+  <mxGeometry relative="1" as="geometry" />
+</mxCell>
+        <mxCell id="c-51" parent="1" style="rounded=1;whiteSpace=wrap;html=1;opacity=60;fontSize=11;" value="" vertex="1">
+  <mxGeometry height="190" width="2460" x="40" y="1600" as="geometry" />
+</mxCell>
+        <mxCell id="c-52" parent="1" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;rounded=0;fontSize=14;" value="&lt;b&gt;三个必须记住的“异步 / 校验”点&lt;/b&gt;" vertex="1">
+  <mxGeometry height="36" width="2420" x="60" y="1606" as="geometry" />
+</mxCell>
+        <mxCell id="c-53" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontSize=10;" value="① &lt;b&gt;两次 all-or-nothing&lt;/b&gt;&lt;br&gt;策略层：整个 region 一次下发&lt;br&gt;部署层：FutureUtils.waitForAll 等齐所有 slot 才统一下发" vertex="1">
+  <mxGeometry height="120" width="780" x="60" y="1652" as="geometry" />
+</mxCell>
+        <mxCell id="c-54" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontSize=10;" value="② &lt;b&gt;两处版本校验&lt;/b&gt;（DefaultExecutionDeployer）&lt;br&gt;assignResource：防迟到 slot 打到新 Execution&lt;br&gt;deployOrHandleError：防过期部署真的发到 TM" vertex="1">
+  <mxGeometry height="120" width="800" x="880" y="1652" as="geometry" />
+</mxCell>
+        <mxCell id="c-55" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontSize=10;" value="③ &lt;b&gt;超时归属&lt;/b&gt;&lt;br&gt;Streaming：PhysicalSlotRequestBulkChecker（按批）兜底&lt;br&gt;Batch：SlotPool 自己的 batch 超时判定" vertex="1">
+  <mxGeometry height="120" width="760" x="1720" y="1652" as="geometry" />
+</mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

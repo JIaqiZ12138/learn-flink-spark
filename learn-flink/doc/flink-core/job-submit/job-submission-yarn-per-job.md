@@ -2313,6 +2313,7 @@ public CompletableFuture<Acknowledge> submitTask(
 
 | 主题 | 文档 |
 |---|---|
+| **下一篇（本篇的续集）**：作业调度与执行（`ExecutionGraph` 建好之后怎么被调度、Slot 怎么申请、Task 怎么下发） | [`job-scheduling-and-execution.md`](../scheduling/job-scheduling-and-execution.md) |
 | 三张图（StreamGraph / JobGraph / ExecutionGraph）差异 | [`three-graphs-wordcount.md`](./three-graphs-wordcount.md) |
 | 三张图对比图 | [`three-graphs-comparison.drawio`](../../assets/three-graphs-comparison.drawio) · [`three-graphs-comparison.png`](../../assets/three-graphs-comparison.png) |
 | 全部提交模式对照（session / application） | [`job-submission-all-modes.md`](./job-submission-all-modes.md) |

@@ -228,7 +228,7 @@ learn-flink-spark/
 │   │   │   │   ├── job-submission-yarn-per-job.md     # 主线文档
 │   │   │   │   ├── three-graphs-wordcount.md          # 三张图对照
 │   │   │   │   └── job-submission-all-modes.md        # 早期笔记
-│   │   │   ├── scheduling/          #      作业调度
+│   │   │   ├── scheduling/          #      ✅ 作业调度 + Slot 分配 + failover（已完成）
 │   │   │   ├── memory/              #      内存管理
 │   │   │   ├── rpc/                 #      组件通信
 │   │   │   ├── functions/           #      处理函数
@@ -486,15 +486,16 @@ mvn -pl learn-flink -am clean compile # 连同父 POM 一起构建
 | 内容 | 位置 |
 |---|---|
 | **Flink 任务提交全流程**（per-job 为主线，端到端） | [`learn-flink/doc/flink-core/job-submit/`](./learn-flink/doc/flink-core/job-submit/) |
-| Flink 最小可运行作业 | `learn-flink/src/main/java/com/learn/flink/sample/WordCountJob.java` |
-| Spark RDD + SQL 最小可运行作业 | `learn-spark/src/main/java/com/learn/spark/sample/WordCountApp.java` |
+| **Flink 作业调度与执行全流程**（DefaultScheduler / Slot 分配 / TaskExecutor） | [`learn-flink/doc/flink-core/scheduling/`](./learn-flink/doc/flink-core/scheduling/) |
+| Flink 最小可运行作业 | `learn-flink/src/main/java/com/jiaqiz/flink/sample/WordCountJob.java` |
+| Spark RDD + SQL 最小可运行作业 | `learn-spark/src/main/java/com/jiaqiz/spark/sample/WordCountApp.java` |
 
 ### 🐿️ Flink 推进顺序
 
 按「**提交 → 调度 → 运行 → 状态**」的依赖顺序推进，每一步都能接上前一步：
 
 - [x] `flink-core/job-submit` —— 任务提交
-- [ ] `flink-core/scheduling` —— 作业调度（ExecutionGraph、Slot 分配、failover）
+- [x] `flink-core/scheduling` —— 作业调度（ExecutionGraph、Slot 分配、failover）
 - [ ] `flink-core/rpc` —— 组件通信（JobManager / TaskManager 之间怎么说话）
 - [ ] `flink-core/memory` —— 内存管理（托管内存与网络缓冲）
 - [ ] `flink-core/functions` —— 处理函数（StreamOperator 与算子链）

@@ -11,7 +11,7 @@
 
 | 分类 | 说明 | 主题数 | 进度 |
 |---|---|---|---|
-| [`flink-core/`](./flink-core/) | 引擎本体：一条记录从提交到执行的完整生命周期。 | 7 | 1/7 |
+| [`flink-core/`](./flink-core/) | 引擎本体：一条记录从提交到执行的完整生命周期。 | 7 | 2/7 |
 | [`flink-sql/`](./flink-sql/) | SQL 层：从一条 SQL 文本到执行计划。 | 4 | 0/4 |
 | [`flink-cdc/`](./flink-cdc/) | 变更数据捕获：把数据库的 binlog 变成 Flink 数据流。 | 6 | 0/6 |
 | [`flink-agent/`](./flink-agent/) | 事件驱动的 AI Agent 框架：让 Agent 跑在 Flink 流处理之上。 | 5 | 0/5 |
@@ -27,7 +27,7 @@
 | 目录 | 主题 | 关注点 | 状态 |
 |---|---|---|---|
 | [`job-submit/`](./flink-core/job-submit/) | 任务提交 | CLI / REST / Application 三种入口 → JobGraph → ExecutionGraph | ✅ 已完成 |
-| `scheduling/` | 作业调度 | 调度策略、Slot 分配、ResourceManager、failover | ⬜ 待开始 |
+| [`scheduling/`](./flink-core/scheduling/) | 作业调度 | 调度策略、Slot 分配、ResourceManager、failover | ✅ 已完成 |
 | `memory/` | 内存管理 | MemoryManager、NetworkBufferPool、托管内存模型 | ⬜ 待开始 |
 | `rpc/` | 组件通信 | RPC 框架（Pekko）、Akka 到 Pekko 的迁移、组件间协议 | ⬜ 待开始 |
 | `functions/` | 处理函数 | StreamOperator、OperatorChain、UDF 生命周期 | ⬜ 待开始 |

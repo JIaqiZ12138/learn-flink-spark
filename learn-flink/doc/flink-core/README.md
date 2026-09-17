@@ -52,7 +52,7 @@
 | 主题目录 | 关注点 | 状态 |
 |---|---|---|
 | [`job-submit/`](job-submit/) | 任务提交：CLI / REST / Application 入口 → `JobGraph` → `ExecutionGraph` | ✅ 已完成 |
-| [`scheduling/`](scheduling/) | 作业调度：调度策略、Slot 分配、ResourceManager、failover | ⬜ 待开始 |
+| [`scheduling/`](scheduling/) | 作业调度：调度策略、Slot 分配、ResourceManager、failover | ✅ 已完成 |
 | [`memory/`](memory/) | 内存管理：MemoryManager、NetworkBufferPool、托管内存模型 | ⬜ 待开始 |
 | [`rpc/`](rpc/) | 组件通信：RPC 框架（Pekko）、Akka 到 Pekko 的迁移、组件间协议 | ⬜ 待开始 |
 | [`functions/`](functions/) | 处理函数：StreamOperator、OperatorChain、UDF 生命周期 | ⬜ 待开始 |
@@ -77,7 +77,7 @@
 | [`job-submission-flow.drawio`](../assets/job-submission-flow.drawio) · [`.png`](../assets/job-submission-flow.png) | 全流程架构图（drawio 源文件 + 导出图片） |
 | [`three-graphs-comparison.drawio`](../assets/three-graphs-comparison.drawio) · [`.png`](../assets/three-graphs-comparison.png) | 三张图并排对照图 |
 
-### 2.2 `scheduling/` — 作业调度 ⬜
+### 2.2 `scheduling/` — 作业调度 ✅
 
 **关注点**：`ExecutionGraph` 建好之后，谁决定"哪个 `ExecutionVertex` 在什么时候、被部署到哪个 slot 上"。
 
@@ -90,6 +90,14 @@
 > ② `SlotPool` **不在调度器里**，由 JobMaster 的 `SlotPoolService` 持有；调度器只拿到 <a href="../../../flink-1.20-source/flink-runtime/src/main/java/org/apache/flink/runtime/scheduler/ExecutionSlotAllocator.java#L28" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">ExecutionSlotAllocator</code></a> → `PhysicalSlotProviderImpl` → `SlotPool`。
 
 **想弄清楚的问题**：slot 共享组怎么影响调度？failover 时是重启整个 region 还是单个 vertex？自适应调度器在什么条件下触发 rescale？
+
+**已完成的文档**：
+
+| 文档 | 讲什么 |
+|---|---|
+| [`job-scheduling-and-execution.md`](scheduling/job-scheduling-and-execution.md) | 主线：调度与执行的**界限**（起点 `JobMaster.startScheduling()`、终点用户代码执行、闭环是重调度）→ **12 节源码解析**（`SchedulerBase` / `DefaultScheduler` / `PipelinedRegionSchedulingStrategy` / `DefaultExecutionDeployer` / `Execution` 状态机 / 逻辑 slot 与物理 slot / `DeclarativeSlotPoolBridge` / `FineGrainedSlotManager` / `ActiveResourceManager` + `YarnResourceManagerDriver` / `TaskExecutor` / `Task.run()` / failover / 自适应调度）→ **总结**。含 118 个可点击源码链接 |
+| [`job-scheduling-flow.drawio`](../assets/job-scheduling-flow.drawio) · [`.png`](../assets/job-scheduling-flow.png) | 总览架构图：JobMaster 调度栈 / ResourceManager / TaskManager 三栏 + 失败重调度回路 |
+| [`slot-allocation-deploy-flow.drawio`](../assets/slot-allocation-deploy-flow.drawio) · [`.png`](../assets/slot-allocation-deploy-flow.png) | 时序图：一次 `allocateSlotsAndDeploy()` 的完整往返（JM 声明需求 → RM 撮合 → TM 推回槽位 → 绑定 → `submitTask`） |
 
 ### 2.3 `memory/` — 内存管理 ⬜
 
@@ -149,8 +157,8 @@
 
 | 目录 | 主题 | 状态 | 备注 |
 |---|---|---|---|
-| [`job-submit/`](job-submit/) | 任务提交 | ✅ 已完成 | 唯一有正文的主题，含 3 篇文档 + 2 张图 |
-| [`scheduling/`](scheduling/) | 作业调度 | ⬜ 待开始 | 只有 `.gitkeep` 占位 |
+| [`job-submit/`](job-submit/) | 任务提交 | ✅ 已完成 | 含 3 篇文档 + 2 张图 |
+| [`scheduling/`](scheduling/) | 作业调度 | ✅ 已完成 | 1 篇正文 + 2 张图 |
 | [`memory/`](memory/) | 内存管理 | ⬜ 待开始 | 同上 |
 | [`rpc/`](rpc/) | 组件通信 | ⬜ 待开始 | 同上 |
 | [`functions/`](functions/) | 处理函数 | ⬜ 待开始 | 同上 |
@@ -171,8 +179,23 @@
 | [`three-graphs-comparison.png`](../assets/three-graphs-comparison.png) | 图 · 导出 | 上面那张图的 PNG 导出 |
 | [`README.md`](README.md) | 导航 | 本文件 |
 
+### 3.3 `scheduling/` 下的每个文件
+
+| 文件 | 类型 | 作用 |
+|---|---|---|
+| [`job-scheduling-and-execution.md`](scheduling/job-scheduling-and-execution.md) | 正文 · 174 KB | 调度与执行主线：① 界限（起点 / 终点 / 闭环 / 三层结构 + 版本号机制）② 12 节源码解析（`SchedulerNG`/`SchedulerBase`/`DefaultScheduler` → `PipelinedRegionSchedulingStrategy` → `DefaultExecutionDeployer` → `Execution` 状态机 → 逻辑 slot 与物理 slot → `SlotPool`/`DeclarativeSlotPoolBridge` → `FineGrainedSlotManager` → `ActiveResourceManager`/`YarnResourceManagerDriver` → `TaskExecutor` → `Task.run()` → failover → 自适应调度）③ 总结 |
+| [`job-scheduling-flow.drawio`](../assets/job-scheduling-flow.drawio) · [`.png`](../assets/job-scheduling-flow.png) | 图 · 源文件 + 导出 | 调度与执行总览架构图：**① JobMaster 调度栈 / ② ResourceManager / ③ TaskManager** 三栏 + **④ 失败与重调度回路**，底部附图例 |
+| [`slot-allocation-deploy-flow.drawio`](../assets/slot-allocation-deploy-flow.drawio) · [`.png`](../assets/slot-allocation-deploy-flow.png) | 图 · 源文件 + 导出 | Slot 申请与 Task 部署时序图：5 条泳道（JobMaster 主线程 / SlotPool / ResourceManager / YARN / TaskManager）× 16 步，标出三套 RPC 的方向、两次 all-or-nothing、两处版本校验 |
+
 > **图的维护方式**：图统一放在 `doc/assets/`，与文档分离。改完 `.drawio` 后重新导出同名 `.png`，文档里的图片会自动更新。
 > 导出命令：`drawio --export --format png --scale 2 --border 10 --output x.png x.drawio`
+>
+> ⚠️ **导出注意两点**：
+> ① **单边像素必须 < 4096**。部分 Markdown 渲染器（Chromium/Electron 系）对超过 4096 px 的图片**不显示**，表现为"图片加载不出来"。老图（3883 / 3635 px）能显示、新图（4875 / 4955 px，`--scale 2`）不能，就是这个原因。大图请用 `--scale 1.5`（本目录两张新图即 3660×2130、3720×2509）。
+> ② 若本机已开着 draw.io 桌面版，直接调 CLI 会连到那个实例并**挂住**，需用隔离的用户目录：
+> `drawio --user-data-dir=/tmp/drawio-cli-profile --no-sandbox --disable-gpu --export --format png --scale 1.5 --border 10 --output x.png x.drawio`
+>
+> **自检命令**（确认导出结果没超限）：`sips -g pixelWidth -g pixelHeight x.png`
 
 ---
 
@@ -184,7 +207,8 @@
 2. 再读 **`job-submission-yarn-per-job.md` 的第一部分**，把流程的"界限"钉死：从哪一步开始、到哪一步结束、跨了几个 JVM
 3. 然后按 2.1 → 2.10 **逐节读源码解析**，每节都配了真实源码，遇到蓝色链接就点进 `flink-1.20-source/` 看上下文
 4. 读累了看 **`three-graphs-wordcount.md`**，用最小的例子把三张图的差异一次性对齐
-5. 最后跑一遍 `learn-flink/src/main/java/com/learn/flink/sample/GraphComparisonJob.java`，亲手把三张图打印出来
+5. 最后跑一遍 `learn-flink/src/main/java/com/jiaqiz/flink/sample/GraphComparisonJob.java`，亲手把三张图打印出来
+6. 进入调度主题：先看 **`scheduling/job-scheduling-flow.png`**（三栏总览），再读 **`job-scheduling-and-execution.md`**，配 **`slot-allocation-deploy-flow.png`** 理解"一次 `allocateSlotsAndDeploy()` 到底走了几趟 RPC"
 
 ### 4.2 环境要求
 
