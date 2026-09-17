@@ -219,18 +219,21 @@ learn-flink-spark/
 │   ├── pom.xml
 │   ├── doc/                         # ── 轴一：源码解读 ──
 │   │   ├── README.md                #    笔记总索引
-│   │   ├── flink-core/              #    内核（8 主题）
-│   │   │   ├── job-submit/          #      ✅ 任务提交（已完成）
-│   │   │   │   ├── job-submission-yarn-per-job.md
-│   │   │   │   ├── job-submission-all-modes.md
-│   │   │   │   └── flink任务提交.drawio
+│   │   ├── assets/                  #    ── 图仓库：所有 drawio 源文件 + PNG 导出 ──
+│   │   │   ├── job-submission-flow.drawio / .png      # 任务提交全流程图
+│   │   │   └── three-graphs-comparison.drawio / .png  # 三张图并排对照
+│   │   ├── flink-core/              #    内核（7 主题）
+│   │   │   ├── README.md            #      组成说明 + 各文件作用 + 源码入口
+│   │   │   ├── job-submit/          #      ✅ 任务提交（已完成，只放 .md）
+│   │   │   │   ├── job-submission-yarn-per-job.md     # 主线文档
+│   │   │   │   ├── three-graphs-wordcount.md          # 三张图对照
+│   │   │   │   └── job-submission-all-modes.md        # 早期笔记
 │   │   │   ├── scheduling/          #      作业调度
 │   │   │   ├── memory/              #      内存管理
 │   │   │   ├── rpc/                 #      组件通信
 │   │   │   ├── functions/           #      处理函数
 │   │   │   ├── window-watermark/    #      窗口和水位线
-│   │   │   ├── state-fault-tolerance/ #    状态与容错
-│   │   │   └── sql/                 #      FlinkSQL
+│   │   │   └── state-fault-tolerance/ #    状态与容错
 │   │   ├── flink-sql/               #    SQL 层（4 主题）
 │   │   ├── flink-cdc/               #    CDC（6 主题）
 │   │   └── flink-agent/             #    Agent（5 主题）

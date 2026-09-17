@@ -1,0 +1,169 @@
+<mxfile host="Electron">
+  <diagram name="三张图对比" id="three-graphs-wordcount">
+    <mxGraphModel dx="1118" dy="906" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1850" pageHeight="1120" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="C1-panel" parent="1" style="rounded=1;whiteSpace=wrap;html=1;opacity=40;fillColor=#f5f5f5;strokeColor=#b3b3b3;" value="" vertex="1">
+          <mxGeometry height="940" width="340" x="10" y="60" as="geometry" />
+        </mxCell>
+        <mxCell id="C1-title" parent="1" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;rounded=0;fontSize=13;fontStyle=1" value="① 原始程序（用户写的 DataStream API）" vertex="1">
+          <mxGeometry height="34" width="320" x="20" y="16" as="geometry" />
+        </mxCell>
+        <mxCell id="C2-panel" parent="1" style="rounded=1;whiteSpace=wrap;html=1;opacity=40;fillColor=#f5f5f5;strokeColor=#b3b3b3;" value="" vertex="1">
+          <mxGeometry height="940" width="340" x="450" y="60" as="geometry" />
+        </mxCell>
+        <mxCell id="C2-title" parent="1" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;rounded=0;fontSize=13;fontStyle=1" value="② StreamGraph（逻辑图 · 客户端）" vertex="1">
+          <mxGeometry height="34" width="320" x="460" y="16" as="geometry" />
+        </mxCell>
+        <mxCell id="C3-panel" parent="1" style="rounded=1;whiteSpace=wrap;html=1;opacity=40;fillColor=#f5f5f5;strokeColor=#b3b3b3;" value="" vertex="1">
+          <mxGeometry height="940" width="340" x="890" y="60" as="geometry" />
+        </mxCell>
+        <mxCell id="C3-title" parent="1" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;rounded=0;fontSize=13;fontStyle=1" value="③ JobGraph（物理图 · 客户端）" vertex="1">
+          <mxGeometry height="34" width="320" x="900" y="16" as="geometry" />
+        </mxCell>
+        <mxCell id="C4-panel" parent="1" style="rounded=1;whiteSpace=wrap;html=1;opacity=40;fillColor=#f5f5f5;strokeColor=#b3b3b3;" value="" vertex="1">
+          <mxGeometry height="940" width="480" x="1330" y="60" as="geometry" />
+        </mxCell>
+        <mxCell id="C4-title" parent="1" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;rounded=0;fontSize=13;fontStyle=1" value="④ ExecutionGraph（执行图 · JobManager）" vertex="1">
+          <mxGeometry height="34" width="460" x="1340" y="16" as="geometry" />
+        </mxCell>
+        <mxCell id="code" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontSize=10;align=left;verticalAlign=top;spacingLeft=8;spacingTop=6;fontFamily=Courier New;fillColor=#fafafa;" value="env.setParallelism(2);&lt;br&gt;&lt;br&gt;lines = env.fromData(...)&lt;br&gt;    .name(&quot;source&quot;);&lt;br&gt;&lt;br&gt;counts = lines&lt;br&gt;  .flatMap(...)  .name(&quot;flatmap&quot;)&lt;br&gt;  .keyBy(t -&gt; t.f0)  // 隐式重分区&lt;br&gt;  .sum(1)  .name(&quot;sum&quot;);&lt;br&gt;&lt;br&gt;counts.print()    .name(&quot;sink&quot;);" vertex="1">
+          <mxGeometry height="250" width="300" x="30" y="90" as="geometry" />
+        </mxCell>
+        <mxCell id="c1-note" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontSize=11;align=left;verticalAlign=top;spacingLeft=8;spacingTop=6;fillColor=#fffbea;strokeColor=#d6b656;" value="肉眼只看到 4 个算子：&lt;br&gt;source / flatmap / sum / sink&lt;br&gt;&lt;br&gt;但 keyBy 与 print 都隐含了&lt;br&gt;额外的算子与分区语义。" vertex="1">
+          <mxGeometry height="120" width="300" x="30" y="370" as="geometry" />
+        </mxCell>
+        <mxCell id="c2-note" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontSize=11;" value="1 个算子 = 1 个 StreamNode，保留全部拓扑" vertex="1">
+          <mxGeometry height="36" width="300" x="470" y="90" as="geometry" />
+        </mxCell>
+        <mxCell id="sg1" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fontSize=11;" value="id=1  Source: source&lt;br&gt;&lt;font style=&#39;font-size:10px&#39;&gt;并行度 = 1&lt;/font&gt;" vertex="1">
+          <mxGeometry height="52" width="260" x="490" y="160" as="geometry" />
+        </mxCell>
+        <mxCell id="sg2" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fontSize=11;" value="id=2  flatmap&lt;br&gt;&lt;font style=&#39;font-size:10px&#39;&gt;并行度 = 2&lt;/font&gt;" vertex="1">
+          <mxGeometry height="52" width="260" x="490" y="285" as="geometry" />
+        </mxCell>
+        <mxCell id="sg4" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fontSize=11;" value="id=4  sum&lt;br&gt;&lt;font style=&#39;font-size:10px&#39;&gt;并行度 = 2&lt;/font&gt;" vertex="1">
+          <mxGeometry height="52" width="260" x="490" y="410" as="geometry" />
+        </mxCell>
+        <mxCell id="sg5" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fontSize=11;" value="id=5  Sink: sink&lt;br&gt;&lt;font style=&#39;font-size:10px&#39;&gt;并行度 = 2&lt;/font&gt;" vertex="1">
+          <mxGeometry height="52" width="260" x="490" y="535" as="geometry" />
+        </mxCell>
+        <mxCell id="sge0" edge="1" parent="1" source="sg1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=9;strokeColor=#d79b00;dashed=1;" target="sg2" value="RebalancePartitioner&lt;br&gt;（并行度 1→2）">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="sge1" edge="1" parent="1" source="sg2" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=9;strokeColor=#d79b00;dashed=1;" target="sg4" value="KeyGroupStreamPartitioner&lt;br&gt;（keyBy 哈希分区）">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="sge2" edge="1" parent="1" source="sg4" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=9;strokeColor=#82b366;strokeWidth=2;" target="sg5" value="ForwardPartitioner&lt;br&gt;（✔ 可链）">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="c2-note2" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontSize=11;align=left;verticalAlign=top;spacingLeft=8;spacingTop=6;fillColor=#fffbea;strokeColor=#d6b656;" value="&lt;b&gt;⚠ 节点 id 是 1 / 2 / 4 / 5 —— 3 去哪了？&lt;/b&gt;&lt;br&gt;keyBy 产生的 PartitionTransformation 占用了 id=3，&lt;br&gt;它是一个&lt;b&gt;虚拟节点&lt;/b&gt;（只存分区器属性），&lt;br&gt;不出现在 getStreamNodes() 里。" vertex="1">
+          <mxGeometry height="130" width="300" x="470" y="620" as="geometry" />
+        </mxCell>
+        <mxCell id="c3-note" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontSize=11;" value="算子链已合并：&lt;b&gt;4 个 StreamNode → 3 个 JobVertex&lt;/b&gt;" vertex="1">
+          <mxGeometry height="36" width="300" x="910" y="90" as="geometry" />
+        </mxCell>
+        <mxCell id="jg1" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fontSize=11;" value="Source: source&lt;br&gt;&lt;font style=&#39;font-size:10px&#39;&gt;并行度=1  内含算子=1&lt;/font&gt;" vertex="1">
+          <mxGeometry height="56" width="260" x="930" y="175" as="geometry" />
+        </mxCell>
+        <mxCell id="jg2" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fontSize=11;" value="flatmap&lt;br&gt;&lt;font style=&#39;font-size:10px&#39;&gt;并行度=2  内含算子=1&lt;/font&gt;" vertex="1">
+          <mxGeometry height="56" width="260" x="930" y="310" as="geometry" />
+        </mxCell>
+        <mxCell id="jg3" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fontSize=11;fillColor=#d5e8d4;strokeColor=#82b366;fontStyle=1;" value="sum -&amp;gt; Sink: sink&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;并行度=2&amp;nbsp;&amp;nbsp;内含算子=2&amp;nbsp;&amp;nbsp;← 合并了！&lt;br&gt;OperatorChain&lt;/font&gt;" vertex="1">
+          <mxGeometry height="56" width="260" x="930" y="445" as="geometry" />
+        </mxCell>
+        <mxCell id="je0" edge="1" parent="1" source="jg1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=9;" target="jg2" value="JobEdge&lt;br&gt;（IntermediateDataSet）">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="je1" edge="1" parent="1" source="jg2" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=9;" target="jg3" value="JobEdge">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="c3-note2" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontSize=11;align=left;verticalAlign=top;spacingLeft=8;spacingTop=6;fillColor=#fffbea;strokeColor=#d6b656;" value="&lt;b&gt;三处断链刚好演示三条规则：&lt;/b&gt;&lt;br&gt;① source→flatmap：并行度不同（1≠2）&lt;br&gt;② flatmap→sum：非 ForwardPartitioner&lt;br&gt;③ sum→sink：并行度相同 + Forward ✔ 合并&lt;br&gt;&lt;br&gt;max并行度 = -1（未设置）&lt;br&gt;JobVertexID = 算子 hash" vertex="1">
+          <mxGeometry height="170" width="300" x="910" y="610" as="geometry" />
+        </mxCell>
+        <mxCell id="c4-note" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontSize=11;" value="按并行度&lt;b&gt;展开&lt;/b&gt;：3 个 JobVertex → 5 个 ExecutionVertex" vertex="1">
+          <mxGeometry height="36" width="440" x="1350" y="90" as="geometry" />
+        </mxCell>
+        <mxCell id="eg1-box" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fontSize=11;" value="" vertex="1">
+          <mxGeometry height="88" width="420" x="1360" y="175" as="geometry" />
+        </mxCell>
+        <mxCell id="eg1-t" parent="1" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;rounded=0;fontSize=11" value="ExecutionJobVertex: Source: source  &lt;font style=&#39;font-size:10px&#39;&gt;(p = 1)&lt;/font&gt;" vertex="1">
+          <mxGeometry height="22" width="420" x="1360" y="181" as="geometry" />
+        </mxCell>
+        <mxCell id="eg1-v0" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fontSize=11;fillColor=#d5e8d4;strokeColor=#82b366;fontStyle=1;" value="ExecutionVertex (1/1)&lt;br&gt;&lt;font style=&#39;font-size:9px&#39;&gt;子任务序号=0  attempt=0  FINISHED&lt;/font&gt;" vertex="1">
+          <mxGeometry height="46" width="190" x="1380" y="209" as="geometry" />
+        </mxCell>
+        <mxCell id="eg2-box" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fontSize=11;" value="" vertex="1">
+          <mxGeometry height="88" width="420" x="1360" y="310" as="geometry" />
+        </mxCell>
+        <mxCell id="eg2-t" parent="1" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;rounded=0;fontSize=11" value="ExecutionJobVertex: flatmap  &lt;font style=&#39;font-size:10px&#39;&gt;(p = 2)&lt;/font&gt;" vertex="1">
+          <mxGeometry height="22" width="420" x="1360" y="316" as="geometry" />
+        </mxCell>
+        <mxCell id="eg2-v0" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fontSize=11;fillColor=#d5e8d4;strokeColor=#82b366;fontStyle=1;" value="ExecutionVertex (1/2)&lt;br&gt;&lt;font style=&#39;font-size:9px&#39;&gt;子任务序号=0  attempt=0  FINISHED&lt;/font&gt;" vertex="1">
+          <mxGeometry height="46" width="190" x="1380" y="344" as="geometry" />
+        </mxCell>
+        <mxCell id="eg2-v1" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fontSize=11;fillColor=#d5e8d4;strokeColor=#82b366;fontStyle=1;" value="ExecutionVertex (2/2)&lt;br&gt;&lt;font style=&#39;font-size:9px&#39;&gt;子任务序号=1  attempt=0  FINISHED&lt;/font&gt;" vertex="1">
+          <mxGeometry height="46" width="190" x="1580" y="344" as="geometry" />
+        </mxCell>
+        <mxCell id="eg3-box" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fontSize=11;" value="" vertex="1">
+          <mxGeometry height="88" width="420" x="1360" y="455" as="geometry" />
+        </mxCell>
+        <mxCell id="eg3-t" parent="1" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;rounded=0;fontSize=11" value="ExecutionJobVertex: sum -&gt; Sink: sink  &lt;font style=&#39;font-size:10px&#39;&gt;(p = 2)&lt;/font&gt;" vertex="1">
+          <mxGeometry height="22" width="420" x="1360" y="461" as="geometry" />
+        </mxCell>
+        <mxCell id="eg3-v0" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fontSize=11;fillColor=#d5e8d4;strokeColor=#82b366;fontStyle=1;" value="ExecutionVertex (1/2)&lt;br&gt;&lt;font style=&#39;font-size:9px&#39;&gt;子任务序号=0  attempt=0  FINISHED&lt;/font&gt;" vertex="1">
+          <mxGeometry height="46" width="190" x="1380" y="489" as="geometry" />
+        </mxCell>
+        <mxCell id="eg3-v1" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fontSize=11;fillColor=#d5e8d4;strokeColor=#82b366;fontStyle=1;" value="ExecutionVertex (2/2)&lt;br&gt;&lt;font style=&#39;font-size:9px&#39;&gt;子任务序号=1  attempt=0  FINISHED&lt;/font&gt;" vertex="1">
+          <mxGeometry height="46" width="190" x="1580" y="489" as="geometry" />
+        </mxCell>
+        <mxCell id="c4-note2" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontSize=11;align=left;verticalAlign=top;spacingLeft=8;spacingTop=6;fillColor=#fffbea;strokeColor=#d6b656;" value="&lt;b&gt;与 JobGraph 最本质的差别：&lt;/b&gt;&lt;br&gt;JobGraph 说“有哪些算子”，&lt;br&gt;ExecutionGraph 说“&lt;b&gt;每个算子的每一份拷贝&lt;/b&gt;”。&lt;br&gt;&lt;br&gt;另有两处变化：&lt;br&gt;① max并行度 由 -1 解析为 &lt;b&gt;128&lt;/b&gt;&lt;br&gt;② 多了三层状态机&lt;br&gt;   (Job / ExecutionJobVertex / Execution)" vertex="1">
+          <mxGeometry height="180" width="440" x="1350" y="600" as="geometry" />
+        </mxCell>
+        <mxCell id="t1" edge="1" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=8;strokeWidth=2;strokeColor=#4a90d9;" value="StreamGraph&lt;br&gt;Generator&lt;br&gt;.generate()">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="355" y="760" />
+              <mxPoint x="395" y="760" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="t2" edge="1" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=8;strokeWidth=2;strokeColor=#4a90d9;" value="StreamingJobGraph&lt;br&gt;Generator&lt;br&gt;.createJobGraph()&lt;br&gt;&lt;b&gt;★算子链&lt;/b&gt;">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="795" y="760" />
+              <mxPoint x="835" y="760" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="t3" edge="1" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=8;strokeWidth=2;strokeColor=#4a90d9;" value="DefaultExecution&lt;br&gt;GraphBuilder&lt;br&gt;.buildGraph()">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1235" y="760" />
+              <mxPoint x="1275" y="760" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="boundary" edge="1" parent="1" style="endArrow=none;dashed=1;html=1;strokeWidth=2;strokeColor=#d62728;fontSize=10;fontColor=#d62728;verticalAlign=bottom;" value="客户端 ┊ JobManager">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1240" y="62" />
+              <mxPoint x="1240" y="1005" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

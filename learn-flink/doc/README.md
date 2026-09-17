@@ -4,11 +4,14 @@
 
 本目录只放**文档**，不放代码。代码实战见同模块 `src/main/java/`。
 
+> **图不放文档目录**：所有 `.drawio` 源文件与 `.png` 导出统一归档在 [`assets/`](./assets/)，
+> 正文以图片形式内嵌引用。文档目录里只有 `.md`。
+
 ## 分层索引
 
 | 分类 | 说明 | 主题数 | 进度 |
 |---|---|---|---|
-| [`flink-core/`](./flink-core/) | 引擎本体：一条记录从提交到执行的完整生命周期。 | 8 | 1/8 |
+| [`flink-core/`](./flink-core/) | 引擎本体：一条记录从提交到执行的完整生命周期。 | 7 | 1/7 |
 | [`flink-sql/`](./flink-sql/) | SQL 层：从一条 SQL 文本到执行计划。 | 4 | 0/4 |
 | [`flink-cdc/`](./flink-cdc/) | 变更数据捕获：把数据库的 binlog 变成 Flink 数据流。 | 6 | 0/6 |
 | [`flink-agent/`](./flink-agent/) | 事件驱动的 AI Agent 框架：让 Agent 跑在 Flink 流处理之上。 | 5 | 0/5 |
@@ -19,16 +22,19 @@
 
 引擎本体：一条记录从提交到执行的完整生命周期。
 
+> 详细说明（模块组成、每个文件的作用、源码入口链接）见 [`flink-core/README.md`](./flink-core/README.md)。
+
 | 目录 | 主题 | 关注点 | 状态 |
 |---|---|---|---|
-| `job-submit/` | 任务提交 | CLI / REST / Application 三种入口 → JobGraph → ExecutionGraph | ✅ 已完成 |
+| [`job-submit/`](./flink-core/job-submit/) | 任务提交 | CLI / REST / Application 三种入口 → JobGraph → ExecutionGraph | ✅ 已完成 |
 | `scheduling/` | 作业调度 | 调度策略、Slot 分配、ResourceManager、failover | ⬜ 待开始 |
 | `memory/` | 内存管理 | MemoryManager、NetworkBufferPool、托管内存模型 | ⬜ 待开始 |
 | `rpc/` | 组件通信 | RPC 框架（Pekko）、Akka 到 Pekko 的迁移、组件间协议 | ⬜ 待开始 |
 | `functions/` | 处理函数 | StreamOperator、OperatorChain、UDF 生命周期 | ⬜ 待开始 |
 | `window-watermark/` | 窗口和水位线 | WindowAssigner、Trigger、Evictor、Watermark 传播 | ⬜ 待开始 |
 | `state-fault-tolerance/` | 状态与容错 | KeyedState / OperatorState、StateBackend、Checkpoint、Savepoint | ⬜ 待开始 |
-| `sql/` | FlinkSQL | Table API 与 DataStream 的衔接、Planner 装载、运行时算子 | ⬜ 待开始 |
+
+> FlinkSQL 不在 Flink Core 下，它是独立的主题域 [`flink-sql/`](./flink-sql/)。
 
 
 ## Flink SQL
