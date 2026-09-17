@@ -30,6 +30,8 @@ Thumbs.db
 *.log
 logs/
 *.hprof
+# drawio 自动生成的备份文件（保存时留下上一版）
+.$*.drawio.bkp
 
 # ---------------- Flink / Spark 运行时产物 ----------------
 flink-web-upload/
@@ -39,3 +41,9 @@ savepoints/
 spark-warehouse/
 metastore_db/
 derby.log
+
+# 注意：flink-1.20-source/ 刻意**不**在此忽略。
+# 它被 .gitignore 忽略时，IntelliJ 会把它当作 Excluded/Ignored 目录（橙色图标），
+# 从而不建立索引，导致 Ctrl+点击跨模块跳转失效。
+# 代价：git status 会列出该目录下的全部文件（约 2.4 万个）。
+# 如果只想让 git 干净，可改放到仓库外并在 IDEA 里单独打开。
