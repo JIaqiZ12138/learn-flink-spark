@@ -17,18 +17,18 @@
 
 ## 1.1 一句话界定
 
-> **从用户在终端敲下 `bin/flink run`，到 `ExecutionGraph` 构建完成、第一个 `Task` 在 TaskManager 上开始执行。**
+> **从用户在终端敲下 `bin/flink run`，到 <a href="../../../../flink-1.20-source/flink-runtime/src/main/java/org/apache/flink/runtime/executiongraph/ExecutionGraph.java#L89" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">ExecutionGraph</code></a> 构建完成、第一个 <a href="../../../../flink-1.20-source/flink-runtime/src/main/java/org/apache/flink/runtime/taskmanager/Task.java#L161" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">Task</code></a> 在 TaskManager 上开始执行。**
 >
-> 中间跨越 **3 个 JVM 进程**、经历 **2 次 `JobGraph` 序列化**、**3 次异步选主**。
+> 中间跨越 **3 个 JVM 进程**、经历 **2 次 <a href="../../../../flink-1.20-source/flink-runtime/src/main/java/org/apache/flink/runtime/jobgraph/JobGraph.java#L67" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">JobGraph</code></a> 序列化**、**3 次异步选主**。
 
 ## 1.2 起点与终点
 
 | | 位置 | 标志性动作 | 源码入口 |
 |---|---|---|---|
 | **起点** | 客户端 JVM | shell 脚本 `exec java ... CliFrontend "$@"` | <a href="../../../../flink-1.20-source/flink-clients/src/main/java/org/apache/flink/client/cli/CliFrontend.java#L238" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">CliFrontend.run()</code></a> |
-| **终点** | TaskManager 容器 | `submitTask()` → `new Task()` | <a href="../../../../flink-1.20-source/flink-runtime/src/main/java/org/apache/flink/runtime/taskexecutor/TaskExecutor.java#L660" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">TaskExecutor.submitTask()</code></a> |
+| **终点** | TaskManager 容器 | <a href="../../../../flink-1.20-source/flink-runtime/src/main/java/org/apache/flink/runtime/taskexecutor/TaskExecutor.java#L721" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">submitTask()</code></a> → `new Task()` | <a href="../../../../flink-1.20-source/flink-runtime/src/main/java/org/apache/flink/runtime/taskexecutor/TaskExecutor.java#L721" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">TaskExecutor.submitTask()</code></a> |
 
-**终点的精确含义**：`ExecutionGraph` 已在 JobMaster 里构建完毕，`PipelinedRegionSchedulingStrategy` 完成 slot 分配，`Task` 对象在 TaskManager 上被创建。**此后数据怎么流、怎么 checkpoint，不属于"提交"范畴。**
+**终点的精确含义**：<a href="../../../../flink-1.20-source/flink-runtime/src/main/java/org/apache/flink/runtime/executiongraph/ExecutionGraph.java#L89" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">ExecutionGraph</code></a> 已在 JobMaster 里构建完毕，<a href="../../../../flink-1.20-source/flink-runtime/src/main/java/org/apache/flink/runtime/scheduler/strategy/PipelinedRegionSchedulingStrategy.java#L52" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">PipelinedRegionSchedulingStrategy</code></a> 完成 slot 分配，<a href="../../../../flink-1.20-source/flink-runtime/src/main/java/org/apache/flink/runtime/taskmanager/Task.java#L161" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">Task</code></a> 对象在 TaskManager 上被创建。**此后数据怎么流、怎么 checkpoint，不属于"提交"范畴。**
 
 ## 1.3 三个 JVM 边界（理解全局的关键）
 
@@ -49,9 +49,9 @@
 
 | 对象 | 存在于 | 说明 |
 |---|---|---|
-| `StreamGraph` | 仅客户端 | 逻辑图 |
-| `JobGraph` | 客户端生成 → AM 读回 | 提交信封，Java 序列化传输 |
-| `ExecutionGraph` | **仅 AM** | 执行图，客户端完全拿不到 |
+| <a href="../../../../flink-1.20-source/flink-streaming-java/src/main/java/org/apache/flink/streaming/api/graph/StreamGraph.java#L89" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">StreamGraph</code></a> | 仅客户端 | 逻辑图 |
+| <a href="../../../../flink-1.20-source/flink-runtime/src/main/java/org/apache/flink/runtime/jobgraph/JobGraph.java#L67" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">JobGraph</code></a> | 客户端生成 → AM 读回 | 提交信封，Java 序列化传输 |
+| <a href="../../../../flink-1.20-source/flink-runtime/src/main/java/org/apache/flink/runtime/executiongraph/ExecutionGraph.java#L89" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">ExecutionGraph</code></a> | **仅 AM** | 执行图，客户端完全拿不到 |
 
 ## 1.4 明确不包含什么
 
@@ -63,25 +63,25 @@
 | 故障恢复、failover 重调度 | 调度与容错 |
 | SQL 解析与优化 | Flink SQL |
 
-> **为什么要先划界限**：Flink 源码里"提交"这条线其实很短（约 10 个关键类），但它前后接的东西极多。不划界限，就会在读 <a href="../../../../flink-1.20-source/flink-runtime/src/main/java/org/apache/flink/runtime/dispatcher/Dispatcher.java" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">Dispatcher</code></a> 时被 `CheckpointCoordinator` 带跑偏。
+> **为什么要先划界限**：Flink 源码里"提交"这条线其实很短（约 10 个关键类），但它前后接的东西极多。不划界限，就会在读 <a href="../../../../flink-1.20-source/flink-runtime/src/main/java/org/apache/flink/runtime/dispatcher/Dispatcher.java" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">Dispatcher</code></a> 时被 <a href="../../../../flink-1.20-source/flink-runtime/src/main/java/org/apache/flink/runtime/checkpoint/CheckpointCoordinator.java#L102" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">CheckpointCoordinator</code></a> 带跑偏。
 
 ## 1.5 全流程鸟瞰
 
 | 阶段 | 所在 JVM | 关键动作 | 关键类 |
 |---|---|---|---|
 | ① 解析命令 | 客户端 | 选 CustomCommandLine，合并配置 | <a href="../../../../flink-1.20-source/flink-clients/src/main/java/org/apache/flink/client/cli/CliFrontend.java" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">CliFrontend</code></a> / <a href="../../../../flink-1.20-source/flink-clients/src/main/java/org/apache/flink/client/cli/ProgramOptions.java" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">ProgramOptions</code></a> |
-| ② 装载程序 | 客户端 | 构造 `PackagedProgram` | <a href="../../../../flink-1.20-source/flink-clients/src/main/java/org/apache/flink/client/program/PackagedProgram.java" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">PackagedProgram</code></a> |
-| ③ 跑用户 main | **客户端** | 注入 `StreamContextEnvironment` | <a href="../../../../flink-1.20-source/flink-clients/src/main/java/org/apache/flink/client/ClientUtils.java" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">ClientUtils</code></a> |
+| ② 装载程序 | 客户端 | 构造 <a href="../../../../flink-1.20-source/flink-clients/src/main/java/org/apache/flink/client/program/PackagedProgram.java#L67" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">PackagedProgram</code></a> | <a href="../../../../flink-1.20-source/flink-clients/src/main/java/org/apache/flink/client/program/PackagedProgram.java" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">PackagedProgram</code></a> |
+| ③ 跑用户 main | **客户端** | 注入 <a href="../../../../flink-1.20-source/flink-clients/src/main/java/org/apache/flink/client/program/StreamContextEnvironment.java#L65" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">StreamContextEnvironment</code></a> | <a href="../../../../flink-1.20-source/flink-clients/src/main/java/org/apache/flink/client/ClientUtils.java" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">ClientUtils</code></a> |
 | ④ 选执行器 | 客户端 | SPI 命中 `yarn-per-job` | <a href="../../../../flink-1.20-source/flink-core/src/main/java/org/apache/flink/core/execution/DefaultExecutorServiceLoader.java" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">DefaultExecutorServiceLoader</code></a> |
-| ⑤ 生成两图 | 客户端 | `StreamGraph` → `JobGraph`（算子链） | <a href="../../../../flink-1.20-source/flink-streaming-java/src/main/java/org/apache/flink/streaming/api/graph/StreamingJobGraphGenerator.java" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">StreamingJobGraphGenerator</code></a> |
+| ⑤ 生成两图 | 客户端 | <a href="../../../../flink-1.20-source/flink-streaming-java/src/main/java/org/apache/flink/streaming/api/graph/StreamGraph.java#L89" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">StreamGraph</code></a> → <a href="../../../../flink-1.20-source/flink-runtime/src/main/java/org/apache/flink/runtime/jobgraph/JobGraph.java#L67" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">JobGraph</code></a>（算子链） | <a href="../../../../flink-1.20-source/flink-streaming-java/src/main/java/org/apache/flink/streaming/api/graph/StreamingJobGraphGenerator.java" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">StreamingJobGraphGenerator</code></a> |
 | ⑥ 部署集群 | 客户端 | 序列化 `job.graph` + YARN local resource | <a href="../../../../flink-1.20-source/flink-yarn/src/main/java/org/apache/flink/yarn/YarnClusterDescriptor.java" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">YarnClusterDescriptor</code></a> |
 | ⑦ AM 启动 | **AM 容器** | 装安全上下文、起基础设施 | <a href="../../../../flink-1.20-source/flink-runtime/src/main/java/org/apache/flink/runtime/entrypoint/ClusterEntrypoint.java" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">ClusterEntrypoint</code></a> |
 | ⑧ 起三组件 | AM 容器 | WebMonitor 同步 / Dispatcher、RM 异步 | <a href="../../../../flink-1.20-source/flink-runtime/src/main/java/org/apache/flink/runtime/entrypoint/component/DefaultDispatcherResourceManagerComponentFactory.java" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">DefaultDispatcherResourceManagerComponentFactory</code></a> |
 | ⑨ 读回作业 | AM 容器 | `job.graph` → `recoveredJobs` | <a href="../../../../flink-1.20-source/flink-runtime/src/main/java/org/apache/flink/runtime/entrypoint/component/FileJobGraphRetriever.java" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">FileJobGraphRetriever</code></a> |
 | ⑩ 提交作业 | AM 容器 | `startRecoveredJobs()` | <a href="../../../../flink-1.20-source/flink-runtime/src/main/java/org/apache/flink/runtime/dispatcher/Dispatcher.java" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">Dispatcher</code></a> |
-| ⑪ 建执行图 | AM 容器 | `JobMaster` → `ExecutionGraph` | <a href="../../../../flink-1.20-source/flink-runtime/src/main/java/org/apache/flink/runtime/executiongraph/DefaultExecutionGraphBuilder.java" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">DefaultExecutionGraphBuilder</code></a> |
+| ⑪ 建执行图 | AM 容器 | <a href="../../../../flink-1.20-source/flink-runtime/src/main/java/org/apache/flink/runtime/jobmaster/JobMaster.java#L170" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">JobMaster</code></a> → <a href="../../../../flink-1.20-source/flink-runtime/src/main/java/org/apache/flink/runtime/executiongraph/ExecutionGraph.java#L89" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">ExecutionGraph</code></a> | <a href="../../../../flink-1.20-source/flink-runtime/src/main/java/org/apache/flink/runtime/executiongraph/DefaultExecutionGraphBuilder.java" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">DefaultExecutionGraphBuilder</code></a> |
 | ⑫ 分配资源 | AM → TM | 申请容器、启动 TM | <a href="../../../../flink-1.20-source/flink-yarn/src/main/java/org/apache/flink/yarn/YarnResourceManagerDriver.java" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">YarnResourceManagerDriver</code></a> |
-| ⑬ 跑 Task | **TM 容器** | `submitTask()` → `new Task()` | <a href="../../../../flink-1.20-source/flink-runtime/src/main/java/org/apache/flink/runtime/taskexecutor/TaskExecutor.java" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">TaskExecutor</code></a> |
+| ⑬ 跑 Task | **TM 容器** | <a href="../../../../flink-1.20-source/flink-runtime/src/main/java/org/apache/flink/runtime/taskexecutor/TaskExecutor.java#L721" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">submitTask()</code></a> → `new Task()` | <a href="../../../../flink-1.20-source/flink-runtime/src/main/java/org/apache/flink/runtime/taskexecutor/TaskExecutor.java" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">TaskExecutor</code></a> |
 
 ---
 
@@ -216,7 +216,7 @@ public static void executeProgram(
 }
 ```
 
-**关键点**：用户代码里的 `getExecutionEnvironment()` 拿到的不是本地环境，而是**携带 `PipelineExecutorServiceLoader` 的 `StreamContextEnvironment`**。这就是「CLI 能决定用户程序怎么提交」的机制。
+**关键点**：用户代码里的 `getExecutionEnvironment()` 拿到的不是本地环境，而是**携带 <a href="../../../../flink-1.20-source/flink-core/src/main/java/org/apache/flink/core/execution/PipelineExecutorServiceLoader.java#L31" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">PipelineExecutorServiceLoader</code></a> 的 <a href="../../../../flink-1.20-source/flink-clients/src/main/java/org/apache/flink/client/program/StreamContextEnvironment.java#L65" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">StreamContextEnvironment</code></a>**。这就是「CLI 能决定用户程序怎么提交」的机制。
 
 ### 步骤 4：进入用户 `main()`
 
@@ -237,25 +237,25 @@ public void invokeInteractiveModeForExecution() throws ProgramInvocationExceptio
 
 | 顺序 | 实现 | 激活条件 |
 |---|---|---|
-| 1 | `GenericCLI` | 传了 `-t`/`-e`，或配置里已有 `execution.target` |
-| 2 | `FlinkYarnSessionCli` | 传了 `-y*` 或 `-m yarn-cluster` |
-| 3 | `DefaultCLI` | **永远 true**（兜底，所以必须放最后） |
+| 1 | <a href="../../../../flink-1.20-source/flink-clients/src/main/java/org/apache/flink/client/cli/GenericCLI.java#L44" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">GenericCLI</code></a> | 传了 `-t`/`-e`，或配置里已有 `execution.target` |
+| 2 | <a href="../../../../flink-1.20-source/flink-yarn/src/main/java/org/apache/flink/yarn/cli/FlinkYarnSessionCli.java#L93" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">FlinkYarnSessionCli</code></a> | 传了 `-y*` 或 `-m yarn-cluster` |
+| 3 | <a href="../../../../flink-1.20-source/flink-clients/src/main/java/org/apache/flink/client/cli/DefaultCLI.java#L39" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">DefaultCLI</code></a> | **永远 true**（兜底，所以必须放最后） |
 
-⚠️ 忘了写 `-t yarn-per-job`，兜底的 `DefaultCLI` 会**无条件设置 `execution.target=remote`** → 静默变成 session 提交。
+⚠️ 忘了写 `-t yarn-per-job`，兜底的 <a href="../../../../flink-1.20-source/flink-clients/src/main/java/org/apache/flink/client/cli/DefaultCLI.java#L39" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">DefaultCLI</code></a> 会**无条件设置 `execution.target=remote`** → 静默变成 session 提交。
 
 ---
 
-## 2.2 客户端：`PipelineExecutor` 的选择
+## 2.2 客户端：<a href="../../../../flink-1.20-source/flink-core/src/main/java/org/apache/flink/core/execution/PipelineExecutor.java#L29" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">PipelineExecutor</code></a> 的选择
 
 ### 关键类
 
 | 类 | 职责 |
 |---|---|
 | <a href="../../../../flink-1.20-source/flink-streaming-java/src/main/java/org/apache/flink/streaming/api/environment/StreamExecutionEnvironment.java" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">StreamExecutionEnvironment</code></a> | `executeAsync()` → `getPipelineExecutor()` |
-| <a href="../../../../flink-1.20-source/flink-core/src/main/java/org/apache/flink/core/execution/DefaultExecutorServiceLoader.java" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">DefaultExecutorServiceLoader</code></a> | SPI 加载 `PipelineExecutorFactory` |
+| <a href="../../../../flink-1.20-source/flink-core/src/main/java/org/apache/flink/core/execution/DefaultExecutorServiceLoader.java" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">DefaultExecutorServiceLoader</code></a> | SPI 加载 <a href="../../../../flink-1.20-source/flink-core/src/main/java/org/apache/flink/core/execution/PipelineExecutorFactory.java#L29" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">PipelineExecutorFactory</code></a> |
 | <a href="../../../../flink-1.20-source/flink-yarn/src/main/java/org/apache/flink/yarn/executors/YarnJobClusterExecutor.java" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">YarnJobClusterExecutor</code></a> | `target=yarn-per-job` 对应的执行器 |
 
-### 步骤 1：<a href="../../../../flink-1.20-source/flink-streaming-java/src/main/java/org/apache/flink/streaming/api/environment/StreamExecutionEnvironment.java#L2469" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">executeAsync(StreamGraph)</code></a>
+### 步骤 1：<a href="../../../../flink-1.20-source/flink-streaming-java/src/main/java/org/apache/flink/streaming/api/environment/StreamExecutionEnvironment.java#L2435" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">executeAsync(StreamGraph)</code></a>
 
 ```java
 public JobClient executeAsync(StreamGraph streamGraph) throws Exception {
@@ -284,7 +284,7 @@ public JobClient executeAsync(StreamGraph streamGraph) throws Exception {
 }
 ```
 
-### 步骤 2：<a href="../../../../flink-1.20-source/flink-streaming-java/src/main/java/org/apache/flink/streaming/api/environment/StreamExecutionEnvironment.java#L2991" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">getPipelineExecutor()</code></a>
+### 步骤 2：<a href="../../../../flink-1.20-source/flink-streaming-java/src/main/java/org/apache/flink/streaming/api/environment/StreamExecutionEnvironment.java#L2995" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">getPipelineExecutor()</code></a>
 
 ```java
 private PipelineExecutor getPipelineExecutor() throws Exception {
@@ -368,13 +368,13 @@ AbstractJobClusterExecutor（"为我新建一个集群"）—— 只有这一个
 
 ---
 
-## 2.3 客户端：`StreamGraph` → `JobGraph`
+## 2.3 客户端：<a href="../../../../flink-1.20-source/flink-streaming-java/src/main/java/org/apache/flink/streaming/api/graph/StreamGraph.java#L89" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">StreamGraph</code></a> → <a href="../../../../flink-1.20-source/flink-runtime/src/main/java/org/apache/flink/runtime/jobgraph/JobGraph.java#L67" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">JobGraph</code></a>
 
 ### 关键类
 
 | 类 | 职责 |
 |---|---|
-| <a href="../../../../flink-1.20-source/flink-streaming-java/src/main/java/org/apache/flink/streaming/api/graph/StreamGraphGenerator.java" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">StreamGraphGenerator</code></a> | `Transformation` → `StreamGraph` |
+| <a href="../../../../flink-1.20-source/flink-streaming-java/src/main/java/org/apache/flink/streaming/api/graph/StreamGraphGenerator.java" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">StreamGraphGenerator</code></a> | <a href="../../../../flink-1.20-source/flink-core/src/main/java/org/apache/flink/api/dag/Transformation.java#L111" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">Transformation</code></a> → <a href="../../../../flink-1.20-source/flink-streaming-java/src/main/java/org/apache/flink/streaming/api/graph/StreamGraph.java#L89" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">StreamGraph</code></a> |
 | <a href="../../../../flink-1.20-source/flink-streaming-java/src/main/java/org/apache/flink/streaming/api/graph/StreamingJobGraphGenerator.java" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">StreamingJobGraphGenerator</code></a> | `StreamGraph` → `JobGraph`，**算子链在此合并** |
 | <a href="../../../../flink-1.20-source/flink-clients/src/main/java/org/apache/flink/client/deployment/executors/PipelineExecutorUtils.java" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">PipelineExecutorUtils</code></a> | 补挂 jar / classpath / savepoint 设置 |
 
@@ -662,13 +662,13 @@ public static boolean isChainable(StreamEdge edge, StreamGraph streamGraph) {
 |---|---|---|
 | 1 | 下游只有 1 条入边 | — |
 | 2 | `pipeline.operator-chaining.enabled` 开启 | ✅ |
-| 3 | 上下游同一 `SlotSharingGroup` | ✅ |
-| 4 | `ChainingStrategy` 组合允许 | ✅ |
+| 3 | 上下游同一 <a href="../../../../flink-1.20-source/flink-core/src/main/java/org/apache/flink/api/common/operators/SlotSharingGroup.java#L39" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">SlotSharingGroup</code></a> | ✅ |
+| 4 | <a href="../../../../flink-1.20-source/flink-streaming-java/src/main/java/org/apache/flink/streaming/api/operators/ChainingStrategy.java#L32" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">ChainingStrategy</code></a> 组合允许 | ✅ |
 | 5 | **并行度相同** | source(1)→flatmap(2) ❌ 断链 |
-| — | **必须是 `ForwardPartitioner`** | flatmap→sum 是 hash 分区 ❌ 断链 |
+| — | **必须是 <a href="../../../../flink-1.20-source/flink-streaming-java/src/main/java/org/apache/flink/streaming/runtime/partitioner/ForwardPartitioner.java#L31" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">ForwardPartitioner</code></a>** | flatmap→sum 是 hash 分区 ❌ 断链 |
 | — | 非 union | ✅ |
 
-> 实测：`source(1) → flatmap(2) → sum(2) → sink(2)` 中**只有 `sum + sink` 合并**，`JobVertex` 从 4 个 `StreamNode` 变成 3 个。
+> 实测：`source(1) → flatmap(2) → sum(2) → sink(2)` 中**只有 `sum + sink` 合并**，<a href="../../../../flink-1.20-source/flink-runtime/src/main/java/org/apache/flink/runtime/jobgraph/JobVertex.java#L47" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">JobVertex</code></a> 从 4 个 <a href="../../../../flink-1.20-source/flink-streaming-java/src/main/java/org/apache/flink/streaming/api/graph/StreamNode.java#L55" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">StreamNode</code></a> 变成 3 个。
 > 完整对照见 [`three-graphs-wordcount.md`](./three-graphs-wordcount.md) 与 [`three-graphs-comparison.png`](../../assets/three-graphs-comparison.png)。
 
 ### `JobGraph` 不只是图，它是"提交信封"
@@ -709,7 +709,7 @@ public static JobGraph getJobGraph(
 }
 ```
 
-**`JobVertexID` 来自算子的确定性 hash** —— 这是「改算子结构 → savepoint 恢复失败」的根源。
+**<a href="../../../../flink-1.20-source/flink-runtime/src/main/java/org/apache/flink/runtime/jobgraph/JobVertexID.java#L28" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">JobVertexID</code></a> 来自算子的确定性 hash** —— 这是「改算子结构 → savepoint 恢复失败」的根源。
 
 ---
 
@@ -721,7 +721,7 @@ public static JobGraph getJobGraph(
 |---|---|
 | <a href="../../../../flink-1.20-source/flink-clients/src/main/java/org/apache/flink/client/deployment/executors/AbstractJobClusterExecutor.java" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">AbstractJobClusterExecutor</code></a> | per-job 提交主流程 |
 | <a href="../../../../flink-1.20-source/flink-yarn/src/main/java/org/apache/flink/yarn/YarnClusterDescriptor.java" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">YarnClusterDescriptor</code></a> | YARN 部署描述符（约 2000 行） |
-| <a href="../../../../flink-1.20-source/flink-yarn/src/main/java/org/apache/flink/yarn/YarnClusterClientFactory.java" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">YarnClusterClientFactory</code></a> | 创建 `YarnClusterDescriptor` + `YarnClient` |
+| <a href="../../../../flink-1.20-source/flink-yarn/src/main/java/org/apache/flink/yarn/YarnClusterClientFactory.java" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">YarnClusterClientFactory</code></a> | 创建 <a href="../../../../flink-1.20-source/flink-yarn/src/main/java/org/apache/flink/yarn/YarnClusterDescriptor.java#L154" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">YarnClusterDescriptor</code></a> + `YarnClient` |
 | `YarnClient`（Hadoop） | YARN 的**客户端侧** API |
 
 ### 步骤 1：<a href="../../../../flink-1.20-source/flink-clients/src/main/java/org/apache/flink/client/deployment/executors/AbstractJobClusterExecutor.java#L66" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">AbstractJobClusterExecutor.execute()</code></a> —— per-job 提交六步
@@ -762,7 +762,7 @@ public CompletableFuture<JobClient> execute(
 | | per-job | session |
 |---|---|---|
 | 集群获取 | `deployJobCluster(...)` **新建** | `retrieve(clusterId)` **连已有** |
-| 提交方式 | 集群创建时把 `JobGraph` 一起交出去 | `clusterClient.submitJob(jobGraph)` 走 REST |
+| 提交方式 | 集群创建时把 <a href="../../../../flink-1.20-source/flink-runtime/src/main/java/org/apache/flink/runtime/jobgraph/JobGraph.java#L67" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">JobGraph</code></a> 一起交出去 | `clusterClient.submitJob(jobGraph)` 走 REST |
 | 等初始化 | **不等**，直接 `completedFuture(...)` | attached 时 `waitUntilJobInitializationFinished(...)` |
 | 关闭 client | 不关（集群归作业所有） | `whenCompleteAsync((i1,i2) -> clusterClient.close())` |
 
@@ -799,9 +799,9 @@ private YarnClusterDescriptor getClusterDescriptor(Configuration configuration) 
 **全仓库 `YarnClient.createYarnClient()` 只有 2 处，都在客户端**：
 
 - <a href="../../../../flink-1.20-source/flink-yarn/src/main/java/org/apache/flink/yarn/YarnClusterClientFactory.java#L77" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">YarnClusterClientFactory.getClusterDescriptor()</code></a> —— 主实例
-- `YarnClusterDescriptor` 的 `DeploymentFailureHook` —— 兜底实例（注释说明了"因为描述符持有的那个可能已被 close()"）
+- <a href="../../../../flink-1.20-source/flink-yarn/src/main/java/org/apache/flink/yarn/YarnClusterDescriptor.java#L154" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">YarnClusterDescriptor</code></a> 的 `DeploymentFailureHook` —— 兜底实例（注释说明了"因为描述符持有的那个可能已被 close()"）
 
-### 步骤 3：<a href="../../../../flink-1.20-source/flink-yarn/src/main/java/org/apache/flink/yarn/YarnClusterDescriptor.java#L553" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">deployJobCluster()</code></a> 与 <a href="../../../../flink-1.20-source/flink-yarn/src/main/java/org/apache/flink/yarn/YarnClusterDescriptor.java#L600" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">deployInternal()</code></a>
+### 步骤 3：<a href="../../../../flink-1.20-source/flink-yarn/src/main/java/org/apache/flink/yarn/YarnClusterDescriptor.java#L553" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">deployJobCluster()</code></a> 与 <a href="../../../../flink-1.20-source/flink-yarn/src/main/java/org/apache/flink/yarn/YarnClusterDescriptor.java#L603" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">deployInternal()</code></a>
 
 ```java
 public ClusterClientProvider<ApplicationId> deployJobCluster(
@@ -831,8 +831,8 @@ public ClusterClientProvider<ApplicationId> deployJobCluster(
 
 | 类 | 位置 |
 |---|---|
-| <a href="../../../../flink-1.20-source/flink-yarn/src/main/java/org/apache/flink/yarn/YarnClusterDescriptor.java#L891" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">YarnClusterDescriptor.startAppMaster()</code></a> | 序列化 JobGraph + 注册 local resource |
-| `YarnApplicationFileUploader` | 统一管理"本地文件 → HDFS staging → local resource" |
+| <a href="../../../../flink-1.20-source/flink-yarn/src/main/java/org/apache/flink/yarn/YarnClusterDescriptor.java#L894" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">YarnClusterDescriptor.startAppMaster()</code></a> | 序列化 JobGraph + 注册 local resource |
+| <a href="../../../../flink-1.20-source/flink-yarn/src/main/java/org/apache/flink/yarn/YarnApplicationFileUploader.java#L63" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">YarnApplicationFileUploader</code></a> | 统一管理"本地文件 → HDFS staging → local resource" |
 
 ### 序列化 + 注册 local resource
 
@@ -1296,7 +1296,7 @@ protected void initializeServices(Configuration configuration, PluginManager plu
 // ...（省略部分代码，完整实现见源码）
 ```
 
-### 步骤 6：<a href="../../../../flink-1.20-source/flink-yarn/src/main/java/org/apache/flink/yarn/entrypoint/YarnJobClusterEntrypoint.java#L60" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">createDispatcherResourceManagerComponentFactory()</code></a> —— ★ 多态分派点
+### 步骤 6：<a href="../../../../flink-1.20-source/flink-yarn/src/main/java/org/apache/flink/yarn/entrypoint/YarnJobClusterEntrypoint.java#L61" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">createDispatcherResourceManagerComponentFactory()</code></a> —— ★ 多态分派点
 
 ```java
 protected DefaultDispatcherResourceManagerComponentFactory
@@ -1333,7 +1333,7 @@ public JobGraph retrieveJobGraph(Configuration configuration) throws FlinkExcept
 
 注意 `addUserClassPathsToJobGraph()`：把容器 `usrlib` 的路径合并进 `JobGraph.classpaths` —— 因为 `JobGraph` 是**在客户端生成**的，那时还不知道集群侧的 `usrlib` 在哪。
 
-### ★★ `JobGraph` 不走 `submitJob()` RPC
+### ★★ `JobGraph` 不走 <a href="../../../../flink-1.20-source/flink-runtime/src/main/java/org/apache/flink/runtime/dispatcher/Dispatcher.java#L577" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">submitJob()</code></a> RPC
 
 ```java
 protected void onStart() {
@@ -1389,11 +1389,11 @@ public MiniDispatcher createDispatcher(
 → `new ` <a href="../../../../flink-1.20-source/flink-runtime/src/main/java/org/apache/flink/runtime/dispatcher/MiniDispatcher.java" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">MiniDispatcher</code></a>` (..., recoveredJobGraph, ...)`
 
 > <a href="../../../../flink-1.20-source/flink-runtime/src/main/java/org/apache/flink/runtime/dispatcher/MiniDispatcher.java" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">MiniDispatcher</code></a> 的 javadoc：*"initialized with a **single JobGraph** which it runs."*
-> **全程没有 `JobSubmitHandler` / REST 参与。**
+> **全程没有 <a href="../../../../flink-1.20-source/flink-runtime/src/main/java/org/apache/flink/runtime/rest/handler/job/JobSubmitHandler.java#L56" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">JobSubmitHandler</code></a> / REST 参与。**
 
 ---
 
-## 2.7 `Dispatcher` / `ResourceManager` 的异步创建
+## 2.7 <a href="../../../../flink-1.20-source/flink-runtime/src/main/java/org/apache/flink/runtime/dispatcher/Dispatcher.java#L155" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">Dispatcher</code></a> / <a href="../../../../flink-1.20-source/flink-runtime/src/main/java/org/apache/flink/runtime/resourcemanager/ResourceManager.java#L123" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">ResourceManager</code></a> 的异步创建
 
 ### 关键类
 
@@ -1622,7 +1622,7 @@ leaderElection.startLeaderElection(this);   // 登记为 LeaderContender，立�
 ```
 
 **真正的实例创建发生在选主成功的异步回调 `grantLeadership()` 里。**
-所以 `create()` 返回时，Dispatcher 和 RM **可能还没被创建出来**，AM 也还没向 YARN 注册。
+所以 <a href="../../../../flink-1.20-source/flink-runtime/src/main/java/org/apache/flink/runtime/entrypoint/component/DefaultDispatcherResourceManagerComponentFactory.java#L133" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">create()</code></a> 返回时，Dispatcher 和 RM **可能还没被创建出来**，AM 也还没向 YARN 注册。
 
 ### 步骤 2：谁调用 `grantLeadership`
 
@@ -1701,7 +1701,7 @@ private void runRecoveredJob(final JobGraph recoveredJob) {
 }
 ```
 
-⚠️ per-job 首次提交的 `ExecutionType` 就是 **`RECOVERY`** —— 因为没有经过 <a href="../../../../flink-1.20-source/flink-runtime/src/main/java/org/apache/flink/runtime/dispatcher/Dispatcher.java#L518" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">Dispatcher.submitJob()</code></a>，也就**没有 session 模式那条 `jobGraphWriter.putJobGraph()` 落盘路径**。
+⚠️ per-job 首次提交的 <a href="../../../../flink-1.20-source/flink-runtime/src/main/java/org/apache/flink/runtime/dispatcher/Dispatcher.java#L232" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">ExecutionType</code></a> 就是 **`RECOVERY`** —— 因为没有经过 <a href="../../../../flink-1.20-source/flink-runtime/src/main/java/org/apache/flink/runtime/dispatcher/Dispatcher.java#L577" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">Dispatcher.submitJob()</code></a>，也就**没有 session 模式那条 <a href="../../../../flink-1.20-source/flink-runtime/src/main/java/org/apache/flink/runtime/jobmanager/JobGraphWriter.java#L38" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">jobGraphWriter.putJobGraph()</code></a> 落盘路径**。
 
 ### 步骤 4：ResourceManager 线
 
@@ -1816,25 +1816,113 @@ private RegisterApplicationMasterResponse registerApplicationMaster() throws Exc
 | 登记参选 | <a href="../../../../flink-1.20-source/flink-runtime/src/main/java/org/apache/flink/runtime/dispatcher/runner/DefaultDispatcherRunner.java#L85" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">DefaultDispatcherRunner.start()</code></a> | <a href="../../../../flink-1.20-source/flink-runtime/src/main/java/org/apache/flink/runtime/resourcemanager/ResourceManagerServiceImpl.java#L142" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">ResourceManagerServiceImpl.start()</code></a> |
 | 选主回调 | <a href="../../../../flink-1.20-source/flink-runtime/src/main/java/org/apache/flink/runtime/dispatcher/runner/DefaultDispatcherRunner.java#L129" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">grantLeadership()</code></a> | <a href="../../../../flink-1.20-source/flink-runtime/src/main/java/org/apache/flink/runtime/resourcemanager/ResourceManagerServiceImpl.java#L221" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">grantLeadership()</code></a> |
 | 创建领导进程 | <a href="../../../../flink-1.20-source/flink-runtime/src/main/java/org/apache/flink/runtime/dispatcher/runner/JobDispatcherLeaderProcess.java#L79" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">JobDispatcherLeaderProcess.onStart()</code></a> | <a href="../../../../flink-1.20-source/flink-runtime/src/main/java/org/apache/flink/runtime/resourcemanager/ResourceManagerServiceImpl.java#L298" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">startNewLeaderResourceManager()</code></a> |
-| 创建实例 | <a href="../../../../flink-1.20-source/flink-runtime/src/main/java/org/apache/flink/runtime/dispatcher/JobDispatcherFactory.java#L40" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">JobDispatcherFactory.createDispatcher()</code></a> | `resourceManagerFactory.createResourceManager(...)` |
-| 启动 | <a href="../../../../flink-1.20-source/flink-runtime/src/main/java/org/apache/flink/runtime/dispatcher/Dispatcher.java#L349" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">Dispatcher.onStart()</code></a> → <a href="../../../../flink-1.20-source/flink-runtime/src/main/java/org/apache/flink/runtime/dispatcher/Dispatcher.java#L397" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">startRecoveredJobs()</code></a> | <a href="../../../../flink-1.20-source/flink-runtime/src/main/java/org/apache/flink/runtime/resourcemanager/ResourceManager.java#L278" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">startResourceManagerServices()</code></a> |
+| 创建实例 | <a href="../../../../flink-1.20-source/flink-runtime/src/main/java/org/apache/flink/runtime/dispatcher/JobDispatcherFactory.java#L47" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">JobDispatcherFactory.createDispatcher()</code></a> | `resourceManagerFactory.createResourceManager(...)` |
+| 启动 | <a href="../../../../flink-1.20-source/flink-runtime/src/main/java/org/apache/flink/runtime/dispatcher/Dispatcher.java#L382" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">Dispatcher.onStart()</code></a> → <a href="../../../../flink-1.20-source/flink-runtime/src/main/java/org/apache/flink/runtime/dispatcher/Dispatcher.java#L436" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">startRecoveredJobs()</code></a> | <a href="../../../../flink-1.20-source/flink-runtime/src/main/java/org/apache/flink/runtime/resourcemanager/ResourceManager.java#L278" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">startResourceManagerServices()</code></a> |
 | 终点 | ★★ **作业开始提交** | ★★ <a href="../../../../flink-1.20-source/flink-yarn/src/main/java/org/apache/flink/yarn/YarnResourceManagerDriver.java#L583" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">registerApplicationMaster()</code></a> **AM 注册** |
 
 **两条线互不等待** → 作业有可能先于"AM 注册完成"就开始调度。
 
 ---
+## 2.8 <a href="../../../../flink-1.20-source/flink-runtime/src/main/java/org/apache/flink/runtime/jobmaster/JobMaster.java#L281" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">JobMaster</code></a> 是怎么被创建出来的
 
-## 2.8 `JobMaster` 与 `ExecutionGraph`
+> **这一节补上 2.7 与下一节之间的断点。** 你可能会以为"Dispatcher 选主成功 → 直接 new JobMaster"，实际上中间隔着 **6 层工厂调用**，而且最后一步是**异步**的。
+
+### 关键类
+
+| 类 | 职责 |
+|---|---|
+| <a href="../../../../flink-1.20-source/flink-runtime/src/main/java/org/apache/flink/runtime/dispatcher/Dispatcher.java#L727" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">Dispatcher.createJobMasterRunner()</code></a> | ⚠️ 名字骗人：它返回的是 `JobManagerRunner`，**不是 JobMaster** |
+| <a href="../../../../flink-1.20-source/flink-runtime/src/main/java/org/apache/flink/runtime/dispatcher/JobMasterServiceLeadershipRunnerFactory.java#L50" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">JobMasterServiceLeadershipRunnerFactory</code></a> | 1.20 的默认 runner 工厂，替代已删除的 `JobManagerRunnerImpl` |
+| <a href="../../../../flink-1.20-source/flink-runtime/src/main/java/org/apache/flink/runtime/jobmaster/JobMasterServiceLeadershipRunner.java#L82" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">JobMasterServiceLeadershipRunner</code></a> | **作业级**再选一次主的包装；作业最终结果从这里收敛回 Dispatcher |
+| <a href="../../../../flink-1.20-source/flink-runtime/src/main/java/org/apache/flink/runtime/jobmaster/factories/DefaultJobMasterServiceProcessFactory.java#L33" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">DefaultJobMasterServiceProcessFactory</code></a> | 造出 JobMaster service 的状态机持有者 |
+| <a href="../../../../flink-1.20-source/flink-runtime/src/main/java/org/apache/flink/runtime/jobmaster/DefaultJobMasterServiceProcess.java#L89" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">DefaultJobMasterServiceProcess</code></a> | 状态机：未启动 / 运行中 / 已关闭 |
+| <a href="../../../../flink-1.20-source/flink-runtime/src/main/java/org/apache/flink/runtime/jobmaster/factories/DefaultJobMasterServiceFactory.java#L47" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">DefaultJobMasterServiceFactory</code></a> | ★ **全仓库唯一 `new JobMaster(...)` 的地方** |
+
+### 链路：7 层才到 `new JobMaster`
+
+| # | 位置 | 做什么 |
+|---|---|---|
+| 1 | <a href="../../../../flink-1.20-source/flink-runtime/src/main/java/org/apache/flink/runtime/dispatcher/Dispatcher.java#L727" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">Dispatcher.createJobMasterRunner()</code></a> | Dispatcher 决定"为这个作业造一个 runner" |
+| 2 | <a href="../../../../flink-1.20-source/flink-runtime/src/main/java/org/apache/flink/runtime/dispatcher/JobMasterServiceLeadershipRunnerFactory.java#L54" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">…Factory.createJobManagerRunner()</code></a> | 造 runner（`new JobMasterServiceLeadershipRunner(...)` 在 L126）；**顺带**在 L101 造出 <a href="../../../../flink-1.20-source/flink-runtime/src/main/java/org/apache/flink/runtime/jobmaster/factories/DefaultJobMasterServiceFactory.java#L47" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">DefaultJobMasterServiceFactory</code></a> 塞进去 |
+| 3 | <a href="../../../../flink-1.20-source/flink-runtime/src/main/java/org/apache/flink/runtime/jobmaster/JobMasterServiceLeadershipRunner.java#L277" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">….grantLeadership()</code></a> | runner 先"报名参选"。**选主没成功前，JobMaster 根本不会存在** |
+| 4 | <a href="../../../../flink-1.20-source/flink-runtime/src/main/java/org/apache/flink/runtime/jobmaster/JobMasterServiceLeadershipRunner.java#L367" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">….create(leaderSessionId)</code></a> | 选主成功 → 建"JobMaster 服务进程" |
+| 5 | <a href="../../../../flink-1.20-source/flink-runtime/src/main/java/org/apache/flink/runtime/jobmaster/factories/DefaultJobMasterServiceProcessFactory.java#L59" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">…Factory.create()</code></a> | `return new DefaultJobMasterServiceProcess(...)` |
+| 6 | <a href="../../../../flink-1.20-source/flink-runtime/src/main/java/org/apache/flink/runtime/jobmaster/DefaultJobMasterServiceProcess.java#L63" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">DefaultJobMasterServiceProcess</code></a>（构造函数内调用） | 调 `jobMasterServiceFactory.createJobMasterService(...)` |
+| 7 | <a href="../../../../flink-1.20-source/flink-runtime/src/main/java/org/apache/flink/runtime/jobmaster/factories/DefaultJobMasterServiceFactory.java#L95" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">createJobMasterService()</code></a> | ★ **异步**：`CompletableFuture.supplyAsync(..., executor)` |
+| 8 | <a href="../../../../flink-1.20-source/flink-runtime/src/main/java/org/apache/flink/runtime/jobmaster/factories/DefaultJobMasterServiceFactory.java#L104" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">internalCreateJobMasterService()</code></a> | ★★ **`new JobMaster(...)` 就在这里**，紧接着 `jobMaster.start()`（L133） |
+| 9 | <a href="../../../../flink-1.20-source/flink-runtime/src/main/java/org/apache/flink/runtime/jobmaster/JobMaster.java#L281" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">JobMaster</code></a>（构造函数） | 构造期内 `createScheduler()`（L446）→ `DefaultSchedulerFactory.createInstance()` → <a href="../../../../flink-1.20-source/flink-runtime/src/main/java/org/apache/flink/runtime/executiongraph/DefaultExecutionGraphBuilder.java#L82" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">DefaultExecutionGraphBuilder.buildGraph()</code></a> |
+
+**谁选了 `JobMasterServiceLeadershipRunnerFactory`：**
+
+- per-job 模式 → <a href="../../../../flink-1.20-source/flink-runtime/src/main/java/org/apache/flink/runtime/dispatcher/JobDispatcherFactory.java#L38" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">JobDispatcherFactory</code></a>（L76）
+- session 模式 → <a href="../../../../flink-1.20-source/flink-runtime/src/main/java/org/apache/flink/runtime/dispatcher/SessionDispatcherFactory.java#L29" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">SessionDispatcherFactory</code></a>（L51）
+
+两条路径（`RECOVERY` / `SUBMISSION`）最终都汇到 `createJobMasterRunner` 这一个点。
+
+### ★ 三个最容易误解的地方
+
+**① 全仓库只有一个 `new JobMaster`。** 就上面第 8 步那一处。<a href="../../../../flink-1.20-source/flink-runtime/src/main/java/org/apache/flink/runtime/dispatcher/Dispatcher.java#L155" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">Dispatcher</code></a> **不直接创建** `JobMaster`——中间夹着 runner factory → runner → process factory → process → service factory 五层。这是 1.20 相对老版本最大的结构变化：老版本 `JobManagerRunnerImpl` 是直接 `new JobMaster(...)` 的，那个类在 1.20 已经不存在。
+
+**② 是异步的。** 第 7 步的 `supplyAsync` 让 `createJobMasterService()` 立刻返回一个 `CompletableFuture`，真正的 `new JobMaster` 跑在 `executor` 线程池上。也就是说——**Dispatcher 拿到 runner 的那一刻，JobMaster 还不存在**。
+
+**③"建 JobMaster" 和 "建 ExecutionGraph" 是同一件事。** `createScheduler()` 是在 `JobMaster` 构造函数里内联调用的，所以 `new JobMaster(...)` 一返回，执行图就已经建好了。这正是下一节要展开的内容。
+
+### 关键代码：唯一创建 JobMaster 的地方
+
+```java
+@Override
+public CompletableFuture<JobMasterService> createJobMasterService(
+        UUID leaderSessionId, OnCompletionActions onCompletionActions) {
+
+    // ★ 异步：立刻返回 Future，真正的创建跑在 executor 线程池上。
+    //   所以调用方拿到 Future 时，JobMaster 还没被 new 出来。
+    return CompletableFuture.supplyAsync(
+            FunctionUtils.uncheckedSupplier(
+                    () -> internalCreateJobMasterService(leaderSessionId, onCompletionActions)),
+            executor);
+}
+
+private JobMasterService internalCreateJobMasterService(
+        UUID leaderSessionId, OnCompletionActions onCompletionActions) throws Exception {
+
+    // ★★ 全仓库唯一的一次 new JobMaster。
+    final JobMaster jobMaster =
+            new JobMaster(
+                    rpcService,
+                    JobMasterId.fromUuidOrNull(leaderSessionId),
+                    jobMasterConfiguration,
+                    ResourceID.generate(),
+                    jobGraph,
+                    /* … 其余 17 个依赖省略 … */ );
+
+    // 注意：构造函数里已经建好了 ExecutionGraph，这里只是"开机"。
+    jobMaster.start();
+
+    return jobMaster;
+}
+```
+
+---
+
+
+## 2.9 <a href="../../../../flink-1.20-source/flink-runtime/src/main/java/org/apache/flink/runtime/jobmaster/JobMaster.java#L170" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">JobMaster</code></a> 与 <a href="../../../../flink-1.20-source/flink-runtime/src/main/java/org/apache/flink/runtime/executiongraph/ExecutionGraph.java#L89" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">ExecutionGraph</code></a>
 
 ### 关键类
 
 | 类 | 职责 |
 |---|---|
 | <a href="../../../../flink-1.20-source/flink-runtime/src/main/java/org/apache/flink/runtime/jobmaster/JobMaster.java" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">JobMaster</code></a> | 单作业运行期的"大脑" |
-| <a href="../../../../flink-1.20-source/flink-runtime/src/main/java/org/apache/flink/runtime/scheduler/DefaultSchedulerFactory.java" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">DefaultSchedulerFactory</code></a> | 创建 `SchedulerNG` |
+| <a href="../../../../flink-1.20-source/flink-runtime/src/main/java/org/apache/flink/runtime/scheduler/DefaultSchedulerFactory.java" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">DefaultSchedulerFactory</code></a> | 创建 <a href="../../../../flink-1.20-source/flink-runtime/src/main/java/org/apache/flink/runtime/scheduler/SchedulerNG.java#L74" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">SchedulerNG</code></a> |
 | <a href="../../../../flink-1.20-source/flink-runtime/src/main/java/org/apache/flink/runtime/scheduler/DefaultScheduler.java" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">DefaultScheduler</code></a> | 调度实现 |
 | <a href="../../../../flink-1.20-source/flink-runtime/src/main/java/org/apache/flink/runtime/executiongraph/DefaultExecutionGraphBuilder.java" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">DefaultExecutionGraphBuilder</code></a> | **`JobGraph` → `ExecutionGraph`** |
 | <a href="../../../../flink-1.20-source/flink-runtime/src/main/java/org/apache/flink/runtime/scheduler/strategy/PipelinedRegionSchedulingStrategy.java" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">PipelinedRegionSchedulingStrategy</code></a> | 默认调度策略 |
+| <a href="../../../../flink-1.20-source/flink-runtime/src/main/java/org/apache/flink/runtime/scheduler/SchedulerNG.java" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">SchedulerNG</code></a> | 调度器抽象接口，<a href="../../../../flink-1.20-source/flink-runtime/src/main/java/org/apache/flink/runtime/jobmaster/JobMaster.java#L170" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">JobMaster</code></a> 只面向它编程 |
+
+> ⚠️ **两个容易写错的地方**
+>
+> ① **`ExecutionGraph` 在 1.20 是 interface，不是 class**。它没有构造函数、没有字段，`getJsonPlan()` 定义在父接口 `AccessExecutionGraph` 上，实现是 `DefaultExecutionGraph` 与 `ArchivedExecutionGraph`。所以"ExecutionGraph 的构造函数"这种说法不存在——建图的实际动作在 <a href="../../../../flink-1.20-source/flink-runtime/src/main/java/org/apache/flink/runtime/executiongraph/DefaultExecutionGraphBuilder.java#L82" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">DefaultExecutionGraphBuilder.buildGraph()</code></a> 里。
+>
+> ② **`AdaptiveScheduler` 不继承 `SchedulerBase`**。它直接实现 `SchedulerNG` 并自带一套状态机；复用 `SchedulerBase` 骨架的是批模式的 `AdaptiveBatchScheduler`。
 
 ### ★ `ExecutionGraph` 在 `JobMaster` 构造期间就建好了
 
@@ -2012,9 +2100,9 @@ public static DefaultExecutionGraph buildGraph(
 
 | 层 | 说明 |
 |---|---|
-| `ExecutionJobVertex` | 每个 `JobVertex` 一个 |
-| `ExecutionVertex` | **按并行度展开**，每个子任务一个 |
-| `Execution` | 每个 `ExecutionVertex` 的一次尝试（attempt），失败重试递增 |
+| <a href="../../../../flink-1.20-source/flink-runtime/src/main/java/org/apache/flink/runtime/executiongraph/ExecutionJobVertex.java#L86" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">ExecutionJobVertex</code></a> | 每个 <a href="../../../../flink-1.20-source/flink-runtime/src/main/java/org/apache/flink/runtime/jobgraph/JobVertex.java#L47" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">JobVertex</code></a> 一个 |
+| <a href="../../../../flink-1.20-source/flink-runtime/src/main/java/org/apache/flink/runtime/executiongraph/ExecutionVertex.java#L60" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">ExecutionVertex</code></a> | **按并行度展开**，每个子任务一个 |
+| <a href="../../../../flink-1.20-source/flink-runtime/src/main/java/org/apache/flink/runtime/executiongraph/Execution.java#L115" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">Execution</code></a> | 每个 <a href="../../../../flink-1.20-source/flink-runtime/src/main/java/org/apache/flink/runtime/executiongraph/ExecutionVertex.java#L60" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">ExecutionVertex</code></a> 的一次尝试（attempt），失败重试递增 |
 | `IntermediateResult(Partition)` | 按并行度展开的具体产物 |
 
 三层都带状态机：`INITIALIZING → CREATED → SCHEDULED → DEPLOYING → RUNNING → FINISHED`
@@ -2084,7 +2172,7 @@ public void startScheduling() {
 
 ---
 
-## 2.9 `TaskManager` 拉起与 `Task` 执行
+## 2.10 `TaskManager` 拉起与 <a href="../../../../flink-1.20-source/flink-runtime/src/main/java/org/apache/flink/runtime/taskmanager/Task.java#L161" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">Task</code></a> 执行
 
 ### 关键类
 
@@ -2092,23 +2180,25 @@ public void startScheduling() {
 |---|---|
 | <a href="../../../../flink-1.20-source/flink-yarn/src/main/java/org/apache/flink/yarn/YarnResourceManagerDriver.java" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">YarnResourceManagerDriver</code></a> | 向 YARN 申请容器、启动 TM |
 | <a href="../../../../flink-1.20-source/flink-runtime/src/main/java/org/apache/flink/runtime/taskexecutor/TaskExecutor.java" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">TaskExecutor</code></a> | TM 侧收 slot 请求、提交 Task |
-| `YarnTaskExecutorRunner` | TM 容器的启动类 |
+| <a href="../../../../flink-1.20-source/flink-runtime/src/main/java/org/apache/flink/runtime/taskmanager/Task.java#L161" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">Task</code></a> | **一个并行子任务的一次执行尝试**（attempt），是 `Runnable`，跑在专属线程里 |
+| <a href="../../../../flink-1.20-source/flink-yarn/src/main/java/org/apache/flink/yarn/YarnTaskExecutorRunner.java#L44" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">YarnTaskExecutorRunner</code></a> | TM 容器的启动类 |
 
 ### 链路
 
 | # | 组件 / 方法 | 做什么 |
 |---|---|---|
-| 1 | `ExecutionSlotAllocator` | 按 SlotSharingGroup 分配逻辑 slot |
-| 2 | `PhysicalSlotProviderImpl.allocatePhysicalSlots()` | 请求物理 slot |
-| 3 | `SlotPool` / `DeclarativeSlotPoolBridge` | JobMaster 侧 slot 账本 |
+| 1 | <a href="../../../../flink-1.20-source/flink-runtime/src/main/java/org/apache/flink/runtime/scheduler/ExecutionSlotAllocator.java#L28" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">ExecutionSlotAllocator</code></a> | 按 SlotSharingGroup 分配逻辑 slot |
+| 2 | <a href="../../../../flink-1.20-source/flink-runtime/src/main/java/org/apache/flink/runtime/jobmaster/slotpool/PhysicalSlotProviderImpl.java#L59" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">PhysicalSlotProviderImpl.allocatePhysicalSlots()</code></a> | 请求物理 slot（逻辑 slot → 物理 slot 的映射） |
+| 3 | <a href="../../../../flink-1.20-source/flink-runtime/src/main/java/org/apache/flink/runtime/jobmaster/slotpool/SlotPool.java#L43" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">SlotPool</code></a> / <a href="../../../../flink-1.20-source/flink-runtime/src/main/java/org/apache/flink/runtime/jobmaster/slotpool/DeclarativeSlotPoolBridge.java#L69" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">DeclarativeSlotPoolBridge</code></a> | JobMaster 侧 slot 账本 |
 | 4 | <a href="../../../../flink-1.20-source/flink-runtime/src/main/java/org/apache/flink/runtime/resourcemanager/ResourceManager.java" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">ResourceManager</code></a> | 声明资源需求 |
-| 5 | `FineGrainedSlotManager` | 1.20 唯一的 `SlotManager` 实现 |
-| 6 | `YarnResourceManagerDriver.requestNewWorker(...)` | 向 YARN 要容器 |
-| 7 | `YarnTaskExecutorRunner` | TM 容器启动类 |
-| 8 | <a href="../../../../flink-1.20-source/flink-runtime/src/main/java/org/apache/flink/runtime/taskexecutor/TaskExecutor.java#L1183" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">TaskExecutor.requestSlot()</code></a> | 接受 slot 请求 |
-| 9 | <a href="../../../../flink-1.20-source/flink-runtime/src/main/java/org/apache/flink/runtime/taskexecutor/TaskExecutor.java#L660" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">TaskExecutor.submitTask()</code></a> | ★★ **流程终点** |
+| 5 | <a href="../../../../flink-1.20-source/flink-runtime/src/main/java/org/apache/flink/runtime/resourcemanager/slotmanager/FineGrainedSlotManager.java#L82" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">FineGrainedSlotManager</code></a> | 1.20 唯一的 <a href="../../../../flink-1.20-source/flink-runtime/src/main/java/org/apache/flink/runtime/resourcemanager/slotmanager/SlotManager.java#L47" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">SlotManager</code></a> 实现 |
+| 6 | <a href="../../../../flink-1.20-source/flink-runtime/src/main/java/org/apache/flink/runtime/resourcemanager/slotmanager/FineGrainedSlotManager.java#L480" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">FineGrainedSlotManager.declareNeededResources()</code></a> → <a href="../../../../flink-1.20-source/flink-runtime/src/main/java/org/apache/flink/runtime/resourcemanager/active/ActiveResourceManager.java#L504" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">ActiveResourceManager.requestNewWorker()</code></a> → <a href="../../../../flink-1.20-source/flink-yarn/src/main/java/org/apache/flink/yarn/YarnResourceManagerDriver.java#L266" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">YarnResourceManagerDriver.requestResource()</code></a> | 声明"需要几个 worker"，最终向 YARN 要容器。⚠️ `requestNewWorker()` **不在 SlotManager 里**，在 `ActiveResourceManager` |
+| 7 | <a href="../../../../flink-1.20-source/flink-yarn/src/main/java/org/apache/flink/yarn/YarnTaskExecutorRunner.java#L44" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">YarnTaskExecutorRunner</code></a> | TM 容器启动类 |
+| 8 | <a href="../../../../flink-1.20-source/flink-runtime/src/main/java/org/apache/flink/runtime/taskexecutor/TaskExecutor.java#L1271" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">TaskExecutor.requestSlot()</code></a> | 接受 slot 请求 |
+| 9 | <a href="../../../../flink-1.20-source/flink-runtime/src/main/java/org/apache/flink/runtime/taskexecutor/TaskExecutor.java#L721" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">TaskExecutor.submitTask()</code></a> | ★★ **流程终点**：校验通过后 `new Task(...)` |
+| 10 | <a href="../../../../flink-1.20-source/flink-runtime/src/main/java/org/apache/flink/runtime/taskmanager/Task.java#L613" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">Task.run()</code></a> | Task 线程主循环：驱动 <a href="../../../../flink-1.20-source/flink-streaming-java/src/main/java/org/apache/flink/streaming/runtime/tasks/StreamTask.java#L199" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">StreamTask</code></a> 真正跑用户代码 |
 
-### 流程终点：<a href="../../../../flink-1.20-source/flink-runtime/src/main/java/org/apache/flink/runtime/taskexecutor/TaskExecutor.java#L660" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">submitTask()</code></a>
+### 流程终点：<a href="../../../../flink-1.20-source/flink-runtime/src/main/java/org/apache/flink/runtime/taskexecutor/TaskExecutor.java#L721" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">submitTask()</code></a>
 
 ```java
 public CompletableFuture<Acknowledge> submitTask(
@@ -2178,8 +2268,8 @@ public CompletableFuture<Acknowledge> submitTask(
 
 | | 用什么 | 干什么 |
 |---|---|---|
-| AM | `AMRMClientAsync` | `registerApplicationMaster` / `allocate`（要容器） |
-| AM | `NMClientAsync` | 启动 / 停止 TM 容器 |
+| AM | `AMRMClientAsync`（Hadoop 类；Flink 侧见 <a href="../../../../flink-1.20-source/flink-yarn/src/main/java/org/apache/flink/yarn/YarnResourceManagerDriver.java#L82" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">YarnResourceManagerDriver</code></a>） | `registerApplicationMaster` / `allocate`（要容器） |
+| AM | `NMClientAsync`（Hadoop 类；Flink 侧见 <a href="../../../../flink-1.20-source/flink-yarn/src/main/java/org/apache/flink/yarn/YarnTaskExecutorRunner.java#L44" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">YarnTaskExecutorRunner</code></a>） | 启动 / 停止 TM 容器 |
 | 客户端 | `YarnClient` | `submitApplication` / `getApplicationReport` |
 
 ---
@@ -2192,16 +2282,16 @@ public CompletableFuture<Acknowledge> submitTask(
 |---|---|---|
 | 1 | **`main()` 和 `JobGraph` 都在客户端** | per-job 与 application 的根本分野 |
 | 2 | **`JobGraph` 不走 HTTP**，是 Java 序列化 → `job.graph` → YARN local resource | 决定排错方向：看 AM 容器日志，不是 REST 日志 |
-| 3 | **per-job 的 `JobGraph` 不走 `submitJob()`**，而是作为 `recoveredJobs` 喂给 <a href="../../../../flink-1.20-source/flink-runtime/src/main/java/org/apache/flink/runtime/dispatcher/MiniDispatcher.java" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">MiniDispatcher</code></a> | 全程没有 `JobSubmitHandler` |
+| 3 | **per-job 的 `JobGraph` 不走 `submitJob()`**，而是作为 `recoveredJobs` 喂给 <a href="../../../../flink-1.20-source/flink-runtime/src/main/java/org/apache/flink/runtime/dispatcher/MiniDispatcher.java" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">MiniDispatcher</code></a> | 全程没有 <a href="../../../../flink-1.20-source/flink-runtime/src/main/java/org/apache/flink/runtime/rest/handler/job/JobSubmitHandler.java#L56" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">JobSubmitHandler</code></a> |
 | 4 | **首次提交的 `ExecutionType` 是 `RECOVERY`** | 因此没有 `jobGraphWriter.putJobGraph()` 落盘路径 |
 | 5 | **<a href="../../../../flink-1.20-source/flink-yarn/src/main/java/org/apache/flink/yarn/entrypoint/YarnJobClusterEntrypoint.java" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">YarnJobClusterEntrypoint</code></a> 就是 AM**（同一进程，不是 AM 里的线程） | 判断依赖链的基准 |
 | 6 | **只有 WebMonitorEndpoint 同步启动**，Dispatcher / RM 都是异步选主后创建 | `create()` 返回 ≠ JobManager 就绪 |
 | 7 | **两条异步线互不等待** | 作业可能先于 AM 注册完成就开始调度 |
-| 8 | **`ExecutionGraph` 在 `JobMaster` 构造期间就建好了** | `start()` 时才建就晚了 |
-| 9 | **算子链在客户端合并**，`JobVertex` 数 ≠ 算子数 | 读 `JobGraph` 时别按算子数推断 |
-| 10 | **`JobVertexID` 来自算子 hash** | 「改算子 → savepoint 恢复失败」的根源 |
+| 8 | **`ExecutionGraph` 在 <a href="../../../../flink-1.20-source/flink-runtime/src/main/java/org/apache/flink/runtime/jobmaster/JobMaster.java#L170" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">JobMaster</code></a> 构造期间就建好了** | `start()` 时才建就晚了 |
+| 9 | **算子链在客户端合并**，<a href="../../../../flink-1.20-source/flink-runtime/src/main/java/org/apache/flink/runtime/jobgraph/JobVertex.java#L47" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">JobVertex</code></a> 数 ≠ 算子数 | 读 `JobGraph` 时别按算子数推断 |
+| 10 | **<a href="../../../../flink-1.20-source/flink-runtime/src/main/java/org/apache/flink/runtime/jobgraph/JobVertexID.java#L28" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">JobVertexID</code></a> 来自算子 hash** | 「改算子 → savepoint 恢复失败」的根源 |
 | 11 | **`YarnClient`（客户端）与 `AMRMClientAsync`（AM）是两套 API** | 同一个"YARN 客户端"的误解源头 |
-| 12 | **`maxParallelism = -1` 表示未设置**，到 `ExecutionGraph` 才解析为 128 | 影响 savepoint 兼容性 |
+| 12 | **`maxParallelism = -1` 表示未设置**，解析发生在建图之前的 `SchedulerBase.computeVertexParallelismStore()`；默认下界 128，并行度大时会按 1.5 倍放大 | 影响 savepoint 兼容性 |
 
 ## 3.2 一句话记忆
 
@@ -2213,9 +2303,9 @@ public CompletableFuture<Acknowledge> submitTask(
 
 | # | 坑 | 表现 | 正解 |
 |---|---|---|---|
-| 1 | 忘记 `-t yarn-per-job` | 静默提交到 session 集群 | 兜底的 `DefaultCLI` 会设 `execution.target=remote` |
+| 1 | 忘记 `-t yarn-per-job` | 静默提交到 session 集群 | 兜底的 <a href="../../../../flink-1.20-source/flink-clients/src/main/java/org/apache/flink/client/cli/DefaultCLI.java#L39" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">DefaultCLI</code></a> 会设 `execution.target=remote` |
 | 2 | 以为 `JobGraph` 走 REST | 翻 REST 日志找不到 | 它是 YARN local resource |
-| 3 | 以为 <a href="../../../../flink-1.20-source/flink-runtime/src/main/java/org/apache/flink/runtime/dispatcher/runner/DefaultDispatcherRunner.java#L85" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">createDispatcherRunner()</code></a> 是同步的 | 调试时 `Dispatcher` 为 null | 它是异步选主 |
+| 3 | 以为 <a href="../../../../flink-1.20-source/flink-runtime/src/main/java/org/apache/flink/runtime/dispatcher/runner/DefaultDispatcherRunnerFactory.java#L75" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">createDispatcherRunner()</code></a> 是同步的 | 调试时 <a href="../../../../flink-1.20-source/flink-runtime/src/main/java/org/apache/flink/runtime/dispatcher/Dispatcher.java#L155" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">Dispatcher</code></a> 为 null | 它是异步选主。注意实现它在 <a href="../../../../flink-1.20-source/flink-runtime/src/main/java/org/apache/flink/runtime/dispatcher/runner/DefaultDispatcherRunnerFactory.java" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">DefaultDispatcherRunnerFactory</code></a> 里，不在 `DefaultDispatcherRunner` 里 |
 | 4 | 把 `YarnClusterEntrypoint` 当成一个类 | 编译找不到 | 实际是 `YarnJobClusterEntrypoint` / `YarnSessionClusterEntrypoint` / `YarnApplicationClusterEntryPoint` 三个 |
 | 5 | 在 session 集群上用 `-D` 调 TM 内存 | 静默无效 | 集群侧参数只在 per-job / application 模式生效 |
 

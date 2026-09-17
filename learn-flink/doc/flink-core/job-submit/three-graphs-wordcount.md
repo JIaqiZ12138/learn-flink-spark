@@ -10,9 +10,9 @@
 
 | 图 | 是什么 | 在哪生成 | 由谁持有 | 节点粒度 |
 |---|---|---|---|---|
-| **StreamGraph** | 逻辑图 | **客户端** | `StreamExecutionEnvironment` | 1 个算子 = 1 个 `StreamNode` |
-| **JobGraph** | 物理图 / 提交信封 | **客户端** | `PipelineExecutor` | **算子链合并后**的 `JobVertex` |
-| **ExecutionGraph** | 执行图 | **JobManager** | `JobMaster` | 按并行度**展开**的 `ExecutionVertex` |
+| **StreamGraph** | 逻辑图 | **客户端** | `StreamExecutionEnvironment` | 1 个算子 = 1 个 <a href="../../../../flink-1.20-source/flink-streaming-java/src/main/java/org/apache/flink/streaming/api/graph/StreamNode.java#L55" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">StreamNode</code></a> |
+| **JobGraph** | 物理图 / 提交信封 | **客户端** | <a href="../../../../flink-1.20-source/flink-core/src/main/java/org/apache/flink/core/execution/PipelineExecutor.java#L29" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">PipelineExecutor</code></a> | **算子链合并后**的 <a href="../../../../flink-1.20-source/flink-runtime/src/main/java/org/apache/flink/runtime/jobgraph/JobVertex.java#L47" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">JobVertex</code></a> |
+| **ExecutionGraph** | 执行图 | **JobManager** | <a href="../../../../flink-1.20-source/flink-runtime/src/main/java/org/apache/flink/runtime/jobmaster/JobMaster.java#L170" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">JobMaster</code></a> | 按并行度**展开**的 <a href="../../../../flink-1.20-source/flink-runtime/src/main/java/org/apache/flink/runtime/executiongraph/ExecutionVertex.java#L60" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">ExecutionVertex</code></a> |
 
 一次转换就是一次「**信息补全 + 结构重组**」：
 
@@ -91,7 +91,7 @@ env.execute() / env.getStreamGraph()
 
 `keyBy` 产生的是一个 `PartitionTransformation`。`StreamGraphGenerator` 的类注释说得很清楚：
 
-> Partitioning, split/select and union don't create actual nodes in the `StreamGraph`. For these, we create a **virtual node** ...
+> Partitioning, split/select and union don't create actual nodes in the <a href="../../../../flink-1.20-source/flink-streaming-java/src/main/java/org/apache/flink/streaming/api/graph/StreamGraph.java#L89" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">StreamGraph</code></a>. For these, we create a **virtual node** ...
 
 也就是说 id=3 被分配给了那个**虚拟分区节点**，它持有"用什么分区器"这个属性，但**不出现在 `getStreamNodes()` 里**。所以遍历节点会看到 id 空洞——这不是 bug。
 
@@ -105,7 +105,7 @@ Source 的并行度是 **1**。因为 `env.fromData(...)` 是集合 Source，它
 |---|---|---|
 | source → flatmap | `RebalancePartitioner` | 轮询，因为下游并行度(2) > 上游(1) |
 | flatmap → sum | `KeyGroupStreamPartitioner` | keyBy 的哈希分区 |
-| sum → sink | `ForwardPartitioner` | 一对一，**这条边可以被链合并** |
+| sum → sink | <a href="../../../../flink-1.20-source/flink-streaming-java/src/main/java/org/apache/flink/streaming/runtime/partitioner/ForwardPartitioner.java#L31" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">ForwardPartitioner</code></a> | 一对一，**这条边可以被链合并** |
 
 ### 2.4 打印 API
 
@@ -161,23 +161,23 @@ JobVertex 数量 = 3
 
 ### 3.3 相比 StreamGraph 变了什么
 
-**① 4 个节点 → 3 个节点**：`sum` 和 `Sink: sink` 被合并成一个 `JobVertex`（名字变成 `sum -> Sink: sink`，`内含算子数=2`）。
+**① 4 个节点 → 3 个节点**：`sum` 和 `Sink: sink` 被合并成一个 <a href="../../../../flink-1.20-source/flink-runtime/src/main/java/org/apache/flink/runtime/jobgraph/JobVertex.java#L47" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">JobVertex</code></a>（名字变成 `sum -> Sink: sink`，`内含算子数=2`）。
 
 **② 三处断链，正好把 `isChainable()` 的三种规则各演示了一遍**：
 
 | 边 | 结果 | 断链原因 |
 |---|---|---|
 | source(1) → flatmap(2) | ❌ 断链 | **并行度不同**（1 ≠ 2） |
-| flatmap(2) → sum(2) | ❌ 断链 | **非 `ForwardPartitioner`**（keyBy 是哈希分区，必须过网络） |
-| sum(2) → sink(2) | ✅ **合并** | 并行度相同 + `ForwardPartitioner` |
+| flatmap(2) → sum(2) | ❌ 断链 | **非 <a href="../../../../flink-1.20-source/flink-streaming-java/src/main/java/org/apache/flink/streaming/runtime/partitioner/ForwardPartitioner.java#L31" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">ForwardPartitioner</code></a>**（keyBy 是哈希分区，必须过网络） |
+| sum(2) → sink(2) | ✅ **合并** | 并行度相同 + <a href="../../../../flink-1.20-source/flink-streaming-java/src/main/java/org/apache/flink/streaming/runtime/partitioner/ForwardPartitioner.java#L31" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">ForwardPartitioner</code></a> |
 
-**③ 出现 `IntermediateDataSet`**：`StreamEdge` 是逻辑边，而 `JobEdge` 只在**断链处**存在，它连接的是「上游的中间结果产出集」→「下游顶点」。所以 3 个顶点只有 2 条 `JobEdge`。
+**③ 出现 <a href="../../../../flink-1.20-source/flink-runtime/src/main/java/org/apache/flink/runtime/jobgraph/IntermediateDataSet.java#L35" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">IntermediateDataSet</code></a>**：`StreamEdge` 是逻辑边，而 <a href="../../../../flink-1.20-source/flink-runtime/src/main/java/org/apache/flink/runtime/jobgraph/JobEdge.java#L30" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">JobEdge</code></a> 只在**断链处**存在，它连接的是「上游的中间结果产出集」→「下游顶点」。所以 3 个顶点只有 2 条 <a href="../../../../flink-1.20-source/flink-runtime/src/main/java/org/apache/flink/runtime/jobgraph/JobEdge.java#L30" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">JobEdge</code></a>。
 
-**④ `JobVertexID` 是 hash**：`bc764cd8...` 这种 32 位十六进制串来自算子的确定性 hash。**改算子结构 → hash 变 → ID 变 → savepoint 恢复失败**，这条运维规则的根源就在这里。
+**④ <a href="../../../../flink-1.20-source/flink-runtime/src/main/java/org/apache/flink/runtime/jobgraph/JobVertexID.java#L28" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">JobVertexID</code></a> 是 hash**：`bc764cd8...` 这种 32 位十六进制串来自算子的确定性 hash。**改算子结构 → hash 变 → ID 变 → savepoint 恢复失败**，这条运维规则的根源就在这里。
 
-**⑤ `max并行度 = -1`**：此时还没解析，`-1` 表示"未设置"。到 ExecutionGraph 才被填成默认值 128（见下一节）。
+**⑤ `max并行度 = -1`**：此时还没解析，`-1` 表示"未设置"（常量 `JobVertex.MAX_PARALLELISM_DEFAULT`）。它的解析**不在 ExecutionGraph 的构建过程里**，而在建图之前的 <a href="../../../../flink-1.20-source/flink-runtime/src/main/java/org/apache/flink/runtime/scheduler/SchedulerBase.java#L316" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">SchedulerBase.computeVertexParallelismStore()</code></a>（见下一节）。
 
-**⑥ 它还是「提交信封」**：`userJars`、`classpaths`、`SavepointRestoreSettings`、`jobConfiguration` 全挂在 `JobGraph` 上——它不只是图，而是整个作业提交的载体。
+**⑥ 它还是「提交信封」**：`userJars`、`classpaths`、`SavepointRestoreSettings`、`jobConfiguration` 全挂在 <a href="../../../../flink-1.20-source/flink-runtime/src/main/java/org/apache/flink/runtime/jobgraph/JobGraph.java#L67" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">JobGraph</code></a> 上——它不只是图，而是整个作业提交的载体。
 
 ### 3.4 打印 API
 
@@ -206,7 +206,7 @@ JobMaster 构造
               → DefaultExecutionGraphBuilder.buildGraph(...)
 ```
 
-**注意：`ExecutionGraph` 只存在于 JobManager 进程里**，客户端拿不到。所以要观察它，必须真的把作业跑起来（本例用 MiniCluster 把 JM/TM 拉进同一个 JVM）。
+**注意：<a href="../../../../flink-1.20-source/flink-runtime/src/main/java/org/apache/flink/runtime/executiongraph/ExecutionGraph.java#L89" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">ExecutionGraph</code></a> 只存在于 JobManager 进程里**，客户端拿不到。所以要观察它，必须真的把作业跑起来（本例用 MiniCluster 把 JM/TM 拉进同一个 JVM）。
 
 ### 4.2 真实输出
 
@@ -228,7 +228,7 @@ JobMaster 构造
 
 ### 4.3 相比 JobGraph 变了什么
 
-**① 结构被「展开」了**：`JobVertex` 只有 3 个，但它们**共有 5 个并行子任务**。`ExecutionGraph` 为每个子任务都建了一个 `ExecutionVertex`：
+**① 结构被「展开」了**：<a href="../../../../flink-1.20-source/flink-runtime/src/main/java/org/apache/flink/runtime/jobgraph/JobVertex.java#L47" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">JobVertex</code></a> 只有 3 个，但它们**共有 5 个并行子任务**。<a href="../../../../flink-1.20-source/flink-runtime/src/main/java/org/apache/flink/runtime/executiongraph/ExecutionGraph.java#L89" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">ExecutionGraph</code></a> 为每个子任务都建了一个 <a href="../../../../flink-1.20-source/flink-runtime/src/main/java/org/apache/flink/runtime/executiongraph/ExecutionVertex.java#L60" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">ExecutionVertex</code></a>：
 
 ```
 JobGraph                     ExecutionGraph
@@ -240,16 +240,18 @@ JobVertex "flatmap"    →     ExecutionJobVertex "flatmap"
 
 这是三张图里**最本质的差别**：JobGraph 描述"有哪些算子"，ExecutionGraph 描述"**每个算子的每一份拷贝**"。
 
-**② 多了一层 `Execution`（attempt）**：每个 `ExecutionVertex` 可以有一次或多次 `Execution` 尝试（失败重试会产生 attempt=1、2...）。本例全部一次成功，所以 `当前 attempt=0`。
+**② 多了一层 <a href="../../../../flink-1.20-source/flink-runtime/src/main/java/org/apache/flink/runtime/executiongraph/Execution.java#L115" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">Execution</code></a>（attempt）**：每个 <a href="../../../../flink-1.20-source/flink-runtime/src/main/java/org/apache/flink/runtime/executiongraph/ExecutionVertex.java#L60" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">ExecutionVertex</code></a> 可以有一次或多次 <a href="../../../../flink-1.20-source/flink-runtime/src/main/java/org/apache/flink/runtime/executiongraph/Execution.java#L115" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">Execution</code></a> 尝试（失败重试会产生 attempt=1、2...）。本例全部一次成功，所以 `当前 attempt=0`。
 
 **③ 出现状态机**：`INITIALIZING → CREATED → SCHEDULED → DEPLOYING → RUNNING → FINISHED`。每层都有状态：
 - `Execution`（单个子任务尝试）的状态
 - `ExecutionJobVertex.getAggregateState()`（整组子任务的聚合状态）
 - 作业级 `JobStatus`
 
-**④ `max并行度` 从 `-1` 变成了 `128`**：`-1` 只是"未设置"，到这里被解析成了默认上限（`KeyGroupRangeAssignment.DEFAULT_LOWER_BOUND_MAX_PARALLELISM`）。maxParallelism 决定 key group 数量，**改它会让旧 savepoint 无法恢复**。
+**④ `max并行度` 从 `-1` 变成了 `128`**：`-1` 只是"未设置"。真正的解析发生在建图**之前**——<a href="../../../../flink-1.20-source/flink-runtime/src/main/java/org/apache/flink/runtime/scheduler/SchedulerBase.java#L316" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">SchedulerBase.computeVertexParallelismStore()</code></a> 发现等于 `JobVertex.MAX_PARALLELISM_DEFAULT`，就交给 <a href="../../../../flink-1.20-source/flink-runtime/src/main/java/org/apache/flink/runtime/state/KeyGroupRangeAssignment.java" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">KeyGroupRangeAssignment.computeDefaultMaxParallelism()</code></a>。
 
-**⑤ 多了 `IntermediateResult` / `IntermediateResultPartition`**：`JobGraph` 的 `IntermediateDataSet` 是"抽象的产出集"，到 ExecutionGraph 才按并行度展开成一个个具体的 partition（供下游拉取）。
+⚠️ **128 是下界，不是恒定默认值**：`DEFAULT_LOWER_BOUND_MAX_PARALLELISM = 1 << 7`，实际取 `min(max(roundUpToPowerOfTwo(p + p/2), 128), UPPER_BOUND)`。并行度很大时会按 1.5 倍向上取 2 的幂放大——所以并行度 1~170 时是 128，再大就不是了。maxParallelism 决定 key group 数量，**改它会让旧 savepoint 无法恢复**。
+
+**⑤ 多了 `IntermediateResult` / `IntermediateResultPartition`**：<a href="../../../../flink-1.20-source/flink-runtime/src/main/java/org/apache/flink/runtime/jobgraph/JobGraph.java#L67" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">JobGraph</code></a> 的 <a href="../../../../flink-1.20-source/flink-runtime/src/main/java/org/apache/flink/runtime/jobgraph/IntermediateDataSet.java#L35" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">IntermediateDataSet</code></a> 是"抽象的产出集"，到 ExecutionGraph 才按并行度展开成一个个具体的 partition（供下游拉取）。
 
 ### 4.4 打印 API
 
@@ -288,8 +290,8 @@ for (AccessExecutionJobVertex ejv : g.getVerticesTopologically()) {
 | 维度 | StreamGraph | JobGraph | ExecutionGraph |
 |---|---|---|---|
 | 中文叫法 | 逻辑图 | 物理图 / 作业图 | 执行图 |
-| 节点类型 | `StreamNode` | `JobVertex` | `ExecutionJobVertex` + `ExecutionVertex` + `Execution` |
-| 边类型 | `StreamEdge` | `JobEdge` + `IntermediateDataSet` | `ExecutionEdge` + `IntermediateResult(Partition)` |
+| 节点类型 | <a href="../../../../flink-1.20-source/flink-streaming-java/src/main/java/org/apache/flink/streaming/api/graph/StreamNode.java#L55" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">StreamNode</code></a> | <a href="../../../../flink-1.20-source/flink-runtime/src/main/java/org/apache/flink/runtime/jobgraph/JobVertex.java#L47" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">JobVertex</code></a> | <a href="../../../../flink-1.20-source/flink-runtime/src/main/java/org/apache/flink/runtime/executiongraph/ExecutionJobVertex.java#L86" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">ExecutionJobVertex</code></a> + <a href="../../../../flink-1.20-source/flink-runtime/src/main/java/org/apache/flink/runtime/executiongraph/ExecutionVertex.java#L60" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">ExecutionVertex</code></a> + <a href="../../../../flink-1.20-source/flink-runtime/src/main/java/org/apache/flink/runtime/executiongraph/Execution.java#L115" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">Execution</code></a> |
+| 边类型 | `StreamEdge` | <a href="../../../../flink-1.20-source/flink-runtime/src/main/java/org/apache/flink/runtime/jobgraph/JobEdge.java#L30" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">JobEdge</code></a> + <a href="../../../../flink-1.20-source/flink-runtime/src/main/java/org/apache/flink/runtime/jobgraph/IntermediateDataSet.java#L35" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">IntermediateDataSet</code></a> | `ExecutionEdge` + `IntermediateResult(Partition)` |
 | 本案例节点数 | **4** | **3** | **3 / 5 / 5** |
 | 算子链 | ❌ 未合并 | ✅ **已合并** | 沿用 JobGraph 的合并结果 |
 | 并行度展开 | ❌ | ❌（只记并行度数值） | ✅ **展开成 ExecutionVertex** |
@@ -345,6 +347,6 @@ mvn -pl learn-flink compile exec:exec -Dmain.class=com.learn.flink.sample.GraphC
 1. **`env.getStreamGraph()` 默认会清空 transformations**。想拿完 StreamGraph 再转 JobGraph，必须用 `getStreamGraph(false)`。
 2. **StreamGraph 的节点 id 有空洞是正常的**（`keyBy` 等虚拟节点占了号但不入列）。
 3. **`env.setParallelism()` 不一定对所有算子生效**（如集合 Source 固定为 1），这会直接影响断链结果。
-4. **`JobGraph` 的 `maxParallelism = -1` 不代表 1**，它表示"未设置"，到 ExecutionGraph 才解析。
+4. **<a href="../../../../flink-1.20-source/flink-runtime/src/main/java/org/apache/flink/runtime/jobgraph/JobGraph.java#L67" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">JobGraph</code></a> 的 `maxParallelism = -1` 不代表 1**，它表示"未设置"。解析不在 ExecutionGraph 构造里，而在建图之前的 `SchedulerBase.computeVertexParallelismStore()`（默认下界 128，并行度大时会放大）。
 5. **`ArchivedExecutionGraph.getJsonPlan()` 返回的是 JobGraph 的 JSON**（在 `DefaultExecutionGraphBuilder` 里 `setJsonPlan(JsonPlanGenerator.generatePlan(jobGraph))`），不是 ExecutionGraph 特有的结构。
 6. **MiniCluster 关闭时会打印若干 `TaskExecutor is shutting down` 异常**，属于正常噪音，不是作业失败。
