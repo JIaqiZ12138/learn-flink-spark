@@ -138,6 +138,20 @@ import static org.apache.flink.util.Preconditions.checkNotNull;
  * job submissions, persisting them, spawning JobManagers to execute the jobs and to recover them in
  * case of a master failure. Furthermore, it knows about the state of the Flink session cluster.
  */
+// ★ 职责边界：Dispatcher 管"作业的注册与生命周期"，不管"作业怎么跑"。
+//   管：接收并持久化 JobGraph、为每个作业创建一个 JobManagerRunner（内含 JobMaster）、
+//       汇总各作业状态供 Web/REST 查询、作业终态后收敛状态并清理资源。
+//   不管：不做 StreamGraph → JobGraph 的转换（那是客户端 FlinkPipelineTranslationUtil 的活），
+//         不做调度、不碰 ExecutionGraph 与槽位（slot）分配（那是 JobMaster 的活）。
+// ★ 创建时机极易误解：DefaultDispatcherResourceManagerComponentFactory.create() 调
+//   dispatcherRunnerFactory.createDispatcherRunner(...) 时，内部只做了
+//   leaderElection.startLeaderElection(this) 就立刻返回，此刻 Dispatcher 实例还不存在。
+//   真正的创建发生在选主成功之后的异步链路：
+//     grantLeadership → JobDispatcherLeaderProcess.onStart()
+//       → JobDispatcherFactory.createDispatcher(recoveredJobs) → new MiniDispatcher(...)
+// ★ per-job（YARN application）模式是"先有 JobGraph、后起 Dispatcher"：AM 启动时用
+//   FileJobGraphRetriever 从 YARN local resource 读回 job.graph，作为 recoveredJobs 传进来，
+//   因此第一个作业走的是 ExecutionType.RECOVERY 而不是 SUBMISSION（详见 runRecoveredJob）。
 public abstract class Dispatcher extends FencedRpcEndpoint<DispatcherId>
         implements DispatcherGateway {
 
@@ -211,6 +225,9 @@ public abstract class Dispatcher extends FencedRpcEndpoint<DispatcherId>
      */
     private final Set<JobID> pendingJobResourceRequirementsUpdates = new HashSet<>();
 
+    // ★ ExecutionType 区分"首次提交"与"恢复重新拉起"。它不改变 JobGraph，只决定
+    //   JobManagerRunner 初始化失败时的处理策略（见 handleJobManagerRunnerResult）：
+    //   恢复中的作业初始化失败要升级为 Dispatcher 致命错误，以便重新选主后整体再恢复一次。
     /** Enum to distinguish between initial job submission and re-submission for recovery. */
     protected enum ExecutionType {
         SUBMISSION,
@@ -277,6 +294,10 @@ public abstract class Dispatcher extends FencedRpcEndpoint<DispatcherId>
         this.blobServer = dispatcherServices.getBlobServer();
         this.fatalErrorHandler = dispatcherServices.getFatalErrorHandler();
         this.failureEnrichers = dispatcherServices.getFailureEnrichers();
+        // ★ 所有协作者（含 jobGraphWriter、jobResultStore、jobManagerRunnerFactory）都来自
+        //   DispatcherServices，由 DispatcherResourceManagerComponentFactory 装配好后注入。
+        //   所以"构造 Dispatcher"本身不会创建任何 JobMaster —— JobMaster 是每个作业一个，
+        //   要等 jobManagerRunnerFactory.createJobManagerRunner(...) 被调用时才诞生。
         this.jobGraphWriter = dispatcherServices.getJobGraphWriter();
         this.jobResultStore = dispatcherServices.getJobResultStore();
         this.jobManagerMetricGroup = dispatcherServices.getJobManagerMetricGroup();
@@ -307,6 +328,8 @@ public abstract class Dispatcher extends FencedRpcEndpoint<DispatcherId>
 
         this.dispatcherBootstrapFactory = checkNotNull(dispatcherBootstrapFactory);
 
+        // ★ per-job 模式下这里通常只有 1 个元素：从 job.graph 读回来的那个 JobGraph。
+        //   构造期只是暂存，真正拉起发生在 onStart() → startRecoveredJobs()。
         this.recoveredJobs = new HashSet<>(recoveredJobs);
 
         this.recoveredDirtyJobs = new HashSet<>(recoveredDirtyJobs);
@@ -345,6 +368,16 @@ public abstract class Dispatcher extends FencedRpcEndpoint<DispatcherId>
     // Lifecycle methods
     // ------------------------------------------------------
 
+    // ★ onStart() 由该 RpcEndpoint 自己的 RPC 主线程（mainThreadExecutor）回调，是 Dispatcher
+    //   实例真正"上线"的时刻；构造函数只把依赖挂好，不做任何实际启动动作。
+    // ★ 此时 jobGraphWriter / jobManagerRunnerFactory 已经在构造函数里从 DispatcherServices
+    //   挂上来了，这里的意义是"正式开始使用它们"：
+    //     · jobGraphWriter —— 后续把 JobGraph 持久化到 HA 存储（恢复时靠它把作业读回来）；
+    //     · jobManagerRunnerFactory —— "每个作业一个 runner"的工厂，调用它才会创建 JobMaster。
+    //   两者都不在这里创建，别把 onStart 误读成"创建 Dispatcher 的组件"。
+    // ★ 调用顺序有讲究：先启动服务与清理重试，再拉起 recoveredJobs（per-job 模式就是那个唯一作业），
+    //   最后才创建 DispatcherBootstrap —— MiniDispatcher 依赖它实现"作业结束后关掉整个集群"。
+    // 通用dispatcher on start mini Dispatcher 未做扩展实现
     @Override
     public void onStart() throws Exception {
         try {
@@ -394,6 +427,12 @@ public abstract class Dispatcher extends FencedRpcEndpoint<DispatcherId>
                 "There should be no overlap between the recovered JobGraphs and the passed dirty JobResults based on their job ID.");
     }
 
+    // ★★ 这里是被 recoveredJobs 拉起的作业入口。recoveredJobs 从哪来？
+    //    · per-job（YARN application）模式：AM 启动时用 FileJobGraphRetriever 从 YARN
+    //      local resource 里读回 job.graph，再经 JobDispatcherFactory.createDispatcher(recoveredJobs)
+    //      一路传进 MiniDispatcher 的构造函数 —— 即"先有 JobGraph、后起 Dispatcher"。
+    //    · session / HA 模式：来自 jobGraphWriter 持久化在 HA 存储里的 JobGraph。
+    //    所以这段代码不是"重新提交"，而是把已经存在的 JobGraph 直接拉起执行。
     private void startRecoveredJobs() {
         for (JobGraph recoveredJob : recoveredJobs) {
             runRecoveredJob(recoveredJob);
@@ -401,6 +440,12 @@ public abstract class Dispatcher extends FencedRpcEndpoint<DispatcherId>
         recoveredJobs.clear();
     }
 
+    // ★★ 最易误解的一处：下面传的是 ExecutionType.RECOVERY，而不是 SUBMISSION。
+    //    per-job 模式下连"第一个作业"也走 RECOVERY —— 因为它的 JobGraph 是从 job.graph
+    //    读回来的，已经存在，不需要（也不应该）再经 submitJob 那条提交链路。
+    //    与 SUBMISSION 的唯一实质差别在 handleJobManagerRunnerResult：
+    //    RECOVERY 时 runner 初始化失败会升级为 Dispatcher 致命错误（重新选主后再整体恢复一次），
+    //    SUBMISSION 时只把该作业判为失败。
     private void runRecoveredJob(final JobGraph recoveredJob) {
         checkNotNull(recoveredJob);
 
@@ -408,6 +453,9 @@ public abstract class Dispatcher extends FencedRpcEndpoint<DispatcherId>
 
         try (MdcCloseable ignored =
                 MdcUtils.withContext(MdcUtils.asContextData(recoveredJob.getJobID()))) {
+            // ★★ 顺序即语义：createJobMasterRunner(recoveredJob) 用 jobManagerRunnerFactory
+            //    为该作业造出唯一的 runner，runJob 再把它启动并登记。作业从这里真正跑起来。
+            //    注意这条路径不会调用 jobGraphWriter.putJobGraph —— JobGraph 本来就在。
             runJob(createJobMasterRunner(recoveredJob), ExecutionType.RECOVERY);
         } catch (Throwable throwable) {
             onFatalError(
@@ -474,6 +522,9 @@ public abstract class Dispatcher extends FencedRpcEndpoint<DispatcherId>
         throw e;
     }
 
+    // ★ 停止顺序有讲究：先取消客户端存活检测，再关闭所有 JobManagerRunner 并等它们真正终止
+    //   （terminationFuture 全完成），此时才停 DispatcherBootstrap 与各项服务 ——
+    //   保证作业是被"优雅终止"而不是随 JVM 一起消失。
     @Override
     public CompletableFuture<Void> onStop() {
         log.info("Stopping dispatcher {}.", getAddress());
@@ -514,6 +565,14 @@ public abstract class Dispatcher extends FencedRpcEndpoint<DispatcherId>
     // RPCs
     // ------------------------------------------------------
 
+    // ★ Dispatcher 不参与任何"作业转换"：这里拿到的已经是客户端编译好的 JobGraph
+    //   （StreamGraph → JobGraph 的转换在客户端 FlinkPipelineTranslationUtil 中完成）。
+    //   submitJob 只负责"转发 + 持久化 + 建 runner"：
+    //     去重校验（已全局终态 / 已在跑 / 资源半配置）→ internalSubmitJob
+    //     → jobGraphWriter 持久化 → jobManagerRunnerFactory 创建 JobManagerRunner。
+    //   校验是异步的（先查 JobResultStore），最终在 getMainThreadExecutor(jobID) 上串行执行 ——
+    //   用作业自己的 main thread 保证同一作业的状态变更不并发。
+    // dispatcher 提交job 只做jobGraph的转发，不做进一步转换
     @Override
     public CompletableFuture<Acknowledge> submitJob(JobGraph jobGraph, Time timeout) {
         final JobID jobID = jobGraph.getJobID();
@@ -610,6 +669,8 @@ public abstract class Dispatcher extends FencedRpcEndpoint<DispatcherId>
         // track as an outstanding job
         submittedAndWaitingTerminationJobIDs.add(jobGraph.getJobID());
 
+        // ★ 同一个 jobID 上一次的 JobManagerRunner 可能还在终止中，必须等它的 terminationFuture
+        //   完成后再提交，否则会出现两个 runner 抢同一个 jobID 的竞态。
         return waitForTerminatingJob(jobGraph.getJobID(), jobGraph, this::persistAndRunJob)
                 .handle((ignored, throwable) -> handleTermination(jobGraph.getJobID(), throwable))
                 .thenCompose(Function.identity())
@@ -648,12 +709,21 @@ public abstract class Dispatcher extends FencedRpcEndpoint<DispatcherId>
         return CompletableFuture.completedFuture(Acknowledge.get());
     }
 
+    // ★ 提交链路真正"落地"的一步：先 jobGraphWriter.putJobGraph 把 JobGraph 写进 HA 存储
+    //   （JobManager 挂掉后靠它恢复，恢复时就走 runRecoveredJob 那条 RECOVERY 路径），
+    //   再 createJobMasterRunner 造 runner 并以 SUBMISSION 类型启动。
     private void persistAndRunJob(JobGraph jobGraph) throws Exception {
         jobGraphWriter.putJobGraph(jobGraph);
         initJobClientExpiredTime(jobGraph);
         runJob(createJobMasterRunner(jobGraph), ExecutionType.SUBMISSION);
     }
 
+    // ★ 与 jobManagerRunnerFactory 的关系：Dispatcher 只持有一个工厂，工厂按需为每个作业
+    //   创建一个 JobManagerRunner（1.20 默认实现是 JobMasterServiceLeadershipRunnerFactory，
+    //   造出 JobMasterServiceLeadershipRunner，JobMaster 再由其内部的 JobMasterServiceProcess
+    //   异步创建），即"每个作业一个 runner、一个 JobMaster、一份 ExecutionGraph"。
+    //   这里传入 RpcService / HA / BlobServer / 心跳 / 指标组等运行时依赖，
+    //   说明 runner 是作业级隔离的，而 Dispatcher 只是它们的共同宿主。
     private JobManagerRunner createJobMasterRunner(JobGraph jobGraph) throws Exception {
         Preconditions.checkState(!jobManagerRunnerRegistry.isRegistered(jobGraph.getJobID()));
         return jobManagerRunnerFactory.createJobManagerRunner(
@@ -678,6 +748,12 @@ public abstract class Dispatcher extends FencedRpcEndpoint<DispatcherId>
                 getIoExecutor(dirtyJobResult.getJobId()));
     }
 
+    // ★ runJob 是"一个 Entry（JobGraph）变成真正跑起来的作业"的唯一收口点：
+    //   submitJob 正常提交（SUBMISSION）与 startRecoveredJobs / runCleanupRetry（RECOVERY）
+    //   都汇聚到这里。三步：
+    //     第 1 步 start() —— runner 启动，内部才真正创建 JobMaster（进而建 ExecutionGraph）；
+    //     第 2 步 register —— 登记进 jobManagerRunnerRegistry，此后 RPC / Web 才能查到它；
+    //     第 3 步 挂 resultFuture 回调 —— 作业到终态时自动收敛状态、清理资源、摘掉登记。
     private void runJob(JobManagerRunner jobManagerRunner, ExecutionType executionType)
             throws Exception {
         jobManagerRunner.start();
@@ -735,6 +811,11 @@ public abstract class Dispatcher extends FencedRpcEndpoint<DispatcherId>
         return null;
     }
 
+    // ★★ 状态收敛点：JobManagerRunner 的 resultFuture 完成（作业到达终态，或 runner 初始化就失败）
+    //    时进入这里，是 ExecutionType 唯一真正起作用的地方：
+    //      · RECOVERY 且初始化失败 → 不走正常终态处理，而是把 JobStatus 记为 INITIALIZING 并触发
+    //        Dispatcher 致命错误，让重新选主后把所有作业整体再恢复一次（该机制仅在 HA 模式下生效）；
+    //      · 其他情况 → 交给 jobReachedTerminalState 正常收敛。
     private CompletableFuture<CleanupJobState> handleJobManagerRunnerResult(
             JobManagerRunnerResult jobManagerRunnerResult, ExecutionType executionType) {
         if (jobManagerRunnerResult.isInitializationFailure()
@@ -1264,6 +1345,11 @@ public abstract class Dispatcher extends FencedRpcEndpoint<DispatcherId>
                 getMainThreadExecutor(jobId));
     }
 
+    // 资源清理分两级，由上面收敛时算出的 CleanupJobState 决定：
+    //   · globalCleanup —— 清 HA 目录、BlobServer(jar/blob)、检查点与保存点（savepoint）等全局数据，
+    //     并把 JobResultStore 中的条目从 dirty 标记为 clean（标记 clean 才算真正"清干净"）；
+    //   · localCleanup —— 只清 JobManagerRunner 自己占用的本地资源。
+    // 清理失败只记告警不致命（见 logCleanupErrorWarning），避免"清不掉"拖垮整个集群。
     private CompletableFuture<Void> removeJob(JobID jobId, CleanupJobState cleanupJobState) {
         if (cleanupJobState.isGlobalCleanup()) {
             return globalResourceCleaner
@@ -1327,6 +1413,12 @@ public abstract class Dispatcher extends FencedRpcEndpoint<DispatcherId>
         fatalErrorHandler.onFatalError(throwable);
     }
 
+    // ★★ 作业终态收敛点：先把归档后的 ExecutionGraph 写进 executionGraphInfoStore
+    //    （Web UI / REST 结束后仍能查到作业信息），再按"是否全局终态"决定清理级别：
+    //      · 非全局终态（如 SUSPENDED，正在故障重启）→ localCleanup：只清本作业本地资源，
+    //        作业还要被恢复，绝不能清 HA 目录 / 检查点（checkpoint）等全局数据；
+    //      · 全局终态（FINISHED / CANCELED / FAILED）→ 归档到 HistoryServer，并把 JobResultStore
+    //        写成 dirty 条目，随后走 globalCleanup（见 removeJob）。
     @VisibleForTesting
     protected CompletableFuture<CleanupJobState> jobReachedTerminalState(
             ExecutionGraphInfo executionGraphInfo) {
@@ -1375,6 +1467,10 @@ public abstract class Dispatcher extends FencedRpcEndpoint<DispatcherId>
                 ignored -> registerGloballyTerminatedJobInJobResultStore(executionGraphInfo));
     }
 
+    // 往 JobResultStore 落一条 "dirty" 结果条目：它是"作业已结束但清理尚未完成"的书签，
+    // 也是 submitJob 判断"该作业是否已处于全局终态"（isInGloballyTerminalState）的依据，
+    // 同时让新上任的 Dispatcher 知道还有哪些作业需要重试清理。
+    // 写失败要升级为致命错误，否则作业结果可能丢失、导致同一作业被重复提交。
     private CompletableFuture<CleanupJobState> registerGloballyTerminatedJobInJobResultStore(
             ExecutionGraphInfo executionGraphInfo) {
         final JobID jobId = executionGraphInfo.getJobId();

@@ -110,7 +110,8 @@ public enum ClientUtils {
                     executorServiceLoader, configuration, userCodeClassLoader);
 
             try {
-                program.invokeInteractiveModeForExecution(); //反射执行用户的main()
+                //反射执行用户的main()
+                program.invokeInteractiveModeForExecution();
             } finally {
                 ContextEnvironment.unsetAsContext();
                 StreamContextEnvironment.unsetAsContext();

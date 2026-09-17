@@ -53,6 +53,12 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 
+// 【定位】1.20 的 ExecutionGraph 已经“瘦身”，它只负责三件事：
+//   ①图结构（顶点 / 中间结果 / 连接关系）②状态（JobStatus、重启次数、失败原因）
+//   ③供 Web UI 与归档用的快照（jsonPlan、Accumulator、terminationFuture）。
+// 调度决策（槽位分配、failover 策略）与检查点触发（CheckpointCoordinator）都已拆到
+//   org.apache.flink.runtime.scheduler / checkpoint 包里，本接口不再“什么都管”。
+// 分工：JobMaster 持有它并暴露给 REST，SchedulerBase/DefaultScheduler 驱动它，唯一实现类 DefaultExecutionGraph。
 /**
  * The execution graph is the central data structure that coordinates the distributed execution of a
  * data flow. It keeps representations of each parallel task, each intermediate stream, and the
@@ -76,12 +82,20 @@ import java.util.concurrent.CompletableFuture;
  *       in the task status always use the ExecutionAttemptID to address the message receiver.
  * </ul>
  */
+// 注：本文件是**接口**，没有构造函数；真正的构造参数在 DefaultExecutionGraphBuilder.buildGraph()
+//   与 DefaultExecutionGraph 构造函数里。分辨“图数据 vs 运行期依赖”的经验：
+//   图数据 = jobInformation、vertexParallelismStore、vertexAttemptNumberStore、部署 / 状态监听器；
+//   运行期依赖 = futureExecutor、ioExecutor、rpcTimeout、blobWriter、shuffleMaster、partitionTracker 等。
 public interface ExecutionGraph extends AccessExecutionGraph {
 
+    // ★ 调用 start() 之前图就已经建好了（JobMaster 构造期 buildGraph 完成）；start() 只是注入
+    //   JobMaster 主线程执行器，让图上的状态变更都在主线程串行执行，避免加锁。
     void start(@Nonnull ComponentMainThreadExecutor jobMasterMainThreadExecutor);
 
     SchedulingTopology getSchedulingTopology();
 
+    // 由 DefaultExecutionGraphBuilder 在 buildGraph 第 6 步调用，且只有 JobGraph 带
+    //   checkpointingSettings 时才会走到；它内部创建 CheckpointCoordinator 并交给 scheduler 使用。
     void enableCheckpointing(
             CheckpointCoordinatorConfiguration chkConfig,
             List<MasterTriggerRestoreHook<?>> masterHooks,
@@ -101,6 +115,9 @@ public interface ExecutionGraph extends AccessExecutionGraph {
 
     KvStateLocationRegistry getKvStateLocationRegistry();
 
+    // ★ 易错点：这里存进去的 JSON 是 JsonPlanGenerator 针对 **JobGraph** 生成的（只有 JobVertex /
+    //   并行度 / 边），不是 ExecutionGraph 的运行期结构；读取端 getJsonPlan() 定义在父接口
+    //   AccessExecutionGraph 上，最终由 ArchivedExecutionGraph 在作业进入终态时随快照留存，供 Web UI 与诊断。
     void setJsonPlan(String jsonPlan);
 
     Configuration getJobConfiguration();
@@ -155,6 +172,10 @@ public interface ExecutionGraph extends AccessExecutionGraph {
 
     void setInternalTaskFailuresListener(InternalFailuresListener internalTaskFailuresListener);
 
+    // ---- 图结构装配入口（buildGraph 第 5 步调用）----
+    // ★ JobVertex → ExecutionJobVertex（1:1），后者再按 parallelism 展开出 N 个 ExecutionVertex，
+    //   每个 ExecutionVertex 持有一个 Execution（一次执行尝试，带 attemptNumber，失败后重建）；
+    //   JobVertex 的 IntermediateDataSet → IntermediateResult，消费边 → IntermediateResultPartition。
     void attachJobGraph(
             List<JobVertex> topologicallySorted, JobManagerJobMetricGroup jobManagerJobMetricGroup)
             throws JobException;
@@ -192,6 +213,7 @@ public interface ExecutionGraph extends AccessExecutionGraph {
     @VisibleForTesting
     JobStatus waitUntilTerminal() throws InterruptedException;
 
+    // JobStatus 流转的入口之一：CAS 语义（current → newState），不满足前置状态就返回 false。
     boolean transitionState(JobStatus current, JobStatus newState);
 
     void incrementRestarts();
@@ -208,6 +230,7 @@ public interface ExecutionGraph extends AccessExecutionGraph {
      */
     boolean updateState(TaskExecutionStateTransition state);
 
+    // attemptId → Execution 的全局索引：JobManager 收到 TaskManager 的执行状态消息时靠它反查执行尝试。
     Map<ExecutionAttemptID, Execution> getRegisteredExecutions();
 
     void registerJobStatusListener(JobStatusListener listener);
@@ -219,6 +242,8 @@ public interface ExecutionGraph extends AccessExecutionGraph {
     @Nonnull
     ComponentMainThreadExecutor getJobMasterMainThreadExecutor();
 
+    // 顶点在 1.20 被拆成“先 attach 后 initialize”两步，这是为动态图（adaptive scheduler）留的口子：
+    //   普通图在 attachJobGraph 里一次性初始化完，动态图则等上游结果确定后再逐个调用本方法。
     default void initializeJobVertex(ExecutionJobVertex ejv, long createTimestamp)
             throws JobException {
         initializeJobVertex(

@@ -200,6 +200,22 @@ import static org.apache.flink.util.Preconditions.checkNotNull;
  * TaskExecutor implementation. The task executor is responsible for the execution of multiple
  * {@link Task}.
  */
+// ★ TaskExecutor 就是 TaskManager 侧的 RPC 端点，也是文档 2.9 节的落点。
+//   它的职责边界只有"本机这台 TM"，不涉及全局调度：
+//     - slot 账本：TaskSlotTable 记录本机每个槽位（slot）分给了哪个 job 的哪次 allocation；
+//     - task 生命周期：submitTask / cancelTask / triggerCheckpoint / freeSlot 等 RPC 入口；
+//     - 连接管理：向 ResourceManager 注册并心跳（上报 SlotReport），为每个 job 找到它的
+//       JobMaster 并建立连接、心跳（上报 AllocatedSlotReport 与累加器）；
+//     - 本机服务：网络（ShuffleEnvironment）、状态（TaskStateManager）、Blob、类加载器、
+//       指标、QueryableState 等，都以构造参数的形式注入给 Task。
+//   注意它继承 RpcEndpoint：这些方法默认都跑在 TM 主线程（mainThreadExecutor）上，
+//   所以 TaskSlotTable 这类共享状态不需要额外加锁；只有耗时操作才切到 ioExecutor。
+//
+//   与 RM / JM 的 RPC 关系（本文件就是 TM 侧的全部出入口）：
+//     RM --requestSlot()-->  TM          告诉 TM 某个 allocation 落到本机哪个 slot 上
+//     TM --offerSlots()-->   JM          TM 把已分配好的 slot 主动推给 JobMaster
+//     JM --submitTask()-->   TM          JM 下发 TaskDeploymentDescriptor，TM 建 Task 起线程
+//     TM --updateTaskExecutionState()--> JM   状态回传（异步，单向）
 public class TaskExecutor extends RpcEndpoint implements TaskExecutorGateway {
 
     public static final String TASK_MANAGER_NAME = "taskmanager";
@@ -263,6 +279,9 @@ public class TaskExecutor extends RpcEndpoint implements TaskExecutorGateway {
 
     // --------- task slot allocation table -----------
 
+    // ★ 本机 slot 账本，也是 TaskExecutor 唯一的"权威资源视图"：
+    //   哪个 slot 号分给了哪个 job 的哪次 allocation、是否 active、上面跑着哪个 Task，
+    //   RM 的 requestSlot 与 JM 的 submitTask 最终都要落到这张表上做校验。
     private final TaskSlotTable<Task> taskSlotTable;
 
     private final Map<JobID, UUID> currentSlotOfferPerJob = new HashMap<>();
@@ -297,6 +316,11 @@ public class TaskExecutor extends RpcEndpoint implements TaskExecutorGateway {
 
     // --------- resource manager --------
 
+    // ★ 对 RM 的连接是三段式状态，必须按序推进，读代码时别把它们混为一谈：
+    //   resourceManagerAddress（HA 通知的新 leader 地址）
+    //     → resourceManagerConnection（正在注册 / 重试注册）
+    //       → establishedResourceManagerConnection（注册成功，"RM 认这台 TM"了）。
+    //   只有最后一段非空时，才允许处理 RM 发来的 requestSlot。
     @Nullable private ResourceManagerAddress resourceManagerAddress;
 
     @Nullable private EstablishedResourceManagerConnection establishedResourceManagerConnection;
@@ -466,6 +490,11 @@ public class TaskExecutor extends RpcEndpoint implements TaskExecutorGateway {
     //  Life cycle
     // ------------------------------------------------------------------------
 
+    // ★ TM 的启动入口（RpcEndpoint 生命周期回调，由 RpcService 在端点启动时调用）。
+    //   顺序：startTaskExecutorServices() 先把本机服务建好并开始向 RM 注册；
+    //   然后 startRegistrationTimeout() 起一个兜底定时器——若在 maxRegistrationDuration
+    //   之内还没注册上 RM，就直接按致命错误退出进程，免得一个"谁都不知道的 TM"
+    //   长期占着 YARN 容器却不提供任何算力。
     @Override
     public void onStart() throws Exception {
         try {
@@ -481,6 +510,13 @@ public class TaskExecutor extends RpcEndpoint implements TaskExecutorGateway {
         startRegistrationTimeout();
     }
 
+    // ★ 启动顺序有讲究：先连 ResourceManager、再公布 slot。
+    //   因为 slot 只有在 RM 那边"登记过的 TM"上才可能被申请到：RM 只有收到 TM 的注册请求
+    //   和随后的 SlotReport 后，才会把 job 的 ResourceProfile 匹配到这台 TM 上。
+    //   如果反过来先公布 slot，就会出现"RM 眼里 slot 已存在、TM 却还没在册"的窗口，
+    //   这个窗口里任何 allocation 都落不下来，RM 还可能因此重复向 YARN 申请容器。
+    //   之后的 jobLeaderService.start() 是为"每个 job 各自找它的 JobMaster"做准备的，
+    //   它是按 jobId 惰性触发的（见 requestSlot → registerNewJobAndCreateServices）。
     private void startTaskExecutorServices() throws Exception {
         try {
             // start by connecting to the ResourceManager
@@ -514,6 +550,9 @@ public class TaskExecutor extends RpcEndpoint implements TaskExecutorGateway {
         throw e;
     }
 
+    // 关闭顺序与启动大致相反：先断开与 RM / JM 的连接（别再让它们继续向本 TM 派活），
+    // 再关掉 job 级资源（缓存、状态管理器），最后才等 taskSlotTable.closeAsync()
+    // 把所有 slot 上的 Task 收尾完，才真正停掉本机服务。
     /** Called to shut down the TaskManager. The method closes all TaskManager services. */
     @Override
     public CompletableFuture<Void> onStop() {
@@ -656,6 +695,28 @@ public class TaskExecutor extends RpcEndpoint implements TaskExecutorGateway {
     // Task lifecycle RPCs
     // ----------------------------------------------------------------------
 
+    // TaskManager 提交task 计算开始执行
+    // ★★ 文档 2.9 节的【流程终点】：用户代码真正开始执行的地方。
+    //   完整调用链（跨界 RPC，JobMaster → TaskManager）：
+    //     JM 侧 Execution.deploy() 组装 TaskDeploymentDescriptor
+    //       → TaskExecutorGateway.submitTask()（就是本方法，参数 tdd 里带着全部部署信息）
+    //         → new Task(...) → taskSlotTable.addTask(task) → task.startTaskThread()
+    //           → Task.run() → TaskInvokable(StreamTask).restore()/invoke()  ← 用户算子代码
+    //   ★ 本方法只负责"把 Task 对象造出来并把它的线程拉起来"，随即返回 Acknowledge；
+    //   任务的执行结果不在这里返回，而是由 Task 线程通过 updateTaskExecutionState() 异步回传。
+    //
+    //   下面有三段前置校验，任何一段不过都抛 TaskSubmissionException（JM 视为部署失败并重试）：
+    //   第 1 段（下面 jobManagerConnection）：必须已经存在该 job 的 JobMaster 连接。
+    //           TM 只认"通过 jobLeaderService 注册过 leadership 的 JobMaster"，不认任何
+    //           凭空发来的部署请求，这是一道来源校验；连接不存在通常意味着 JM 刚切换过。
+    //   第 2 段（下面 jobMasterId 比对）：校验 leader 代次（fencing token）。
+    //           ★ 这是防"旧 leader 的迟到请求"的关键：JobMaster 主备切换后，老 JM 可能仍有
+    //           在途的 submitTask。若只按 jobId 判断，老 JM 就会把任务部署到已经归新 JM
+    //           管的 slot 上，导致同一次 attempt 被部署两次（重复消费、双写下游）。
+    //           用 jobMasterId 一比，过期请求直接被拒绝，JM 那边会重试到新 leader 上。
+    //   第 3 段（下面 tryMarkSlotActive）：slot 必须仍处于 active 状态。
+    //           timeoutSlot / freeSlot 可能已经把 slot 收回给 RM 了，此时再往里塞 Task 就是错的。
+    //           tryMarkSlotActive 把"校验 + 置为 active"合成一次原子操作，避免校验后被抢占。
     @Override
     public CompletableFuture<Acknowledge> submitTask(
             TaskDeploymentDescriptor tdd, JobMasterId jobMasterId, Time timeout) {
@@ -827,6 +888,10 @@ public class TaskExecutor extends RpcEndpoint implements TaskExecutorGateway {
                 throw new TaskSubmissionException("Could not submit task.", e);
             }
 
+            // ★ 到这一步才真正 new 出 Task。Task 的构造是"重活但无副作用"：
+            //   这里已经把网络 reader/writer（ResultPartitionWriter / InputGate）、
+            //   TaskStateManager、指标组等全部建好了；但构造函数刻意不启动任何线程，
+            //   线程启动由下面的 startTaskThread() 明确负责——这样部署失败时无需回滚构造期的工作。
             Task task =
                     new Task(
                             jobInformation,
@@ -867,6 +932,8 @@ public class TaskExecutor extends RpcEndpoint implements TaskExecutorGateway {
 
             boolean taskAdded;
 
+            // addTask 会再次校验：这个 slot 属于该 job、且仍然 active；
+            // 返回 false 说明同一 attempt 已经在跑了（JM 重复下发），这里直接报错让它去对账。
             try {
                 taskAdded = taskSlotTable.addTask(task);
             } catch (SlotNotFoundException | SlotNotActiveException e) {
@@ -874,6 +941,8 @@ public class TaskExecutor extends RpcEndpoint implements TaskExecutorGateway {
             }
 
             if (taskAdded) {
+                // ★ 线程一启动，Task.run() 立刻开始推进状态：DEPLOYING → INITIALIZING → RUNNING，
+                //   用户代码就在这个线程里跑起来；TM 主线程随即可去处理其他 RPC。
                 task.startTaskThread();
 
                 setupResultPartitionBookkeeping(
@@ -936,6 +1005,8 @@ public class TaskExecutor extends RpcEndpoint implements TaskExecutorGateway {
                 .filter(d -> d.getShuffleDescriptor().storesLocalResourcesOn().isPresent());
     }
 
+    // 取消是"软"终止：这里只把 Task 置为 CANCELING 并触发 invokable 的 cancel()，
+    // 方法本身立刻返回；真正的终态上报与资源回收由 Task 侧完成（见 Task#cancelExecution）。
     @Override
     public CompletableFuture<Acknowledge> cancelTask(
             ExecutionAttemptID executionAttemptID, Time timeout) {
@@ -1059,6 +1130,9 @@ public class TaskExecutor extends RpcEndpoint implements TaskExecutorGateway {
     // Heartbeat RPC
     // ----------------------------------------------------------------------
 
+    // 心跳是 TM 与 RM / JM 之间唯一的周期性"对账"通道：
+    //   TM → RM：心跳 payload 里带 SlotReport 与集群分区报告（见 ResourceManagerHeartbeatListener）；
+    //   JM → TM：payload 里带 AllocatedSlotReport，TM 收到后与本地账本比对，纠正不一致的 slot。
     @Override
     public CompletableFuture<Void> heartbeatFromJobManager(
             ResourceID resourceID, AllocatedSlotReport allocatedSlotReport) {
@@ -1179,6 +1253,20 @@ public class TaskExecutor extends RpcEndpoint implements TaskExecutorGateway {
     // Slot allocation RPCs
     // ----------------------------------------------------------------------
 
+    // ★ 这是 RM → TM 的 slot 分配回调（发起方是 RM，不是 JobMaster！）。
+    //   RM 侧的 FineGrainedSlotManager 定好"哪次 allocation 放到哪台 TM 的哪个 slot"后，
+    //   调 TaskExecutorGateway.requestSlot() 通知本机。参数里的 targetAddress 是 JobMaster
+    //   的地址，TM 借此注册 job（jobLeaderService.addJob）并去找到该 job 的 JM 建连接。
+    //   流程：
+    //     1) 校验发起方 resourceManagerId —— 必须是当前已建立连接的那个 RM，
+    //        否则就是旧 RM（RM 换主）的迟到请求，直接拒绝，让 RM 按新 leader 重试；
+    //     2) tryPersistAllocationSnapshot —— 先落盘，保证 TM 意外重启后能恢复 slot 账本；
+    //     3) allocateSlotForJob —— 在 TaskSlotTable 里占住 slot，必要时注册 job 级服务；
+    //     4) 若该 job 已经连上 JM，就 offerSlotsToJobManager 把这个 slot 推给 JM。
+    //   ★ 失败语义：槽位本身分配失败抛 SlotAllocationException（含 SlotOccupiedException），
+    //     调用方 RM 收到异常会把该 allocation 判为失败并重新分配，不会原地重试；
+    //     而"TM 未连上 RM"抛 TaskManagerException，属于 RM 换主期间的正常现象。
+    //   ★ 返回成功只代表 slot 已在本机分配好，并不代表 Task 已部署——部署是之后 submitTask 的事。
     @Override
     public CompletableFuture<Acknowledge> requestSlot(
             final SlotID slotId,
@@ -1279,6 +1367,10 @@ public class TaskExecutor extends RpcEndpoint implements TaskExecutorGateway {
                 () -> permanentBlobService.releaseJob(jobId));
     }
 
+    // ★ 幂等：若 slot 已经以同一个 (jobId, allocationId) 分配过，这里直接放行——
+    //   RM 可能因响应超时等原因重复下发同一个 requestSlot，重复处理必须是安全的。
+    //   只有"slot 已属于别的 job"才抛 SlotOccupiedException，并把当前占用者信息回给 RM，
+    //   好让 RM 知道是自己记错了账、而不是 TM 拒绝服务。
     private void allocateSlot(
             SlotID slotId, JobID jobId, AllocationID allocationId, ResourceProfile resourceProfile)
             throws SlotAllocationException {
@@ -1515,6 +1607,11 @@ public class TaskExecutor extends RpcEndpoint implements TaskExecutorGateway {
     //  Internal resource manager connection methods
     // ------------------------------------------------------------------------
 
+    // ★ RM 换主时的处理：HA 通知新的 leader 地址后，无条件走
+    //   "关掉旧连接 → 重开注册超时兜底 → 向新 RM 重新注册"。
+    //   为什么不能复用旧连接：新 RM 根本不认识本 TM 的 registrationId（InstanceID），
+    //   必须重新注册才能拿到新的 registrationId 并把 SlotReport 重新上报一遍；
+    //   而 requestSlot 里正是用 resourceManagerId 来拒绝旧 RM 迟到请求的。
     private void notifyOfNewResourceManagerLeader(
             String newLeaderAddress, ResourceManagerId newResourceManagerId) {
         resourceManagerAddress =
@@ -1702,10 +1799,18 @@ public class TaskExecutor extends RpcEndpoint implements TaskExecutorGateway {
     //  Internal job manager connection methods
     // ------------------------------------------------------------------------
 
+    // ★ TM 是把已分配好的 slot 主动"推"给 JobMaster 的（而不是 JM 来拉）。
+    //   触发时机有两个：requestSlot 里分配成功后、以及 JM 新 leader 注册成功时
+    //   （establishJobManagerConnection 末尾会再推一次）。这里只做"有连接就推"，
+    //   没有连接就什么都不做——slot 留在本机 allocated 状态，等 JM 回来再推，
+    //   这样 JM 重启期间已经分给它的 slot 不会被别的 job 抢走。
     private void offerSlotsToJobManager(final JobID jobId) {
         jobTable.getConnection(jobId).ifPresent(this::internalOfferSlotsToJobManager);
     }
 
+    // slotOfferId 用来标识"这是这个 job 最新的一次 offer"：
+    // 只有 offerId 仍等于 currentSlotOfferPerJob 里记录的那一次，响应才会被处理，
+    // 旧响应（例如资源需求变化导致的迟到回复）一律丢弃，避免把已经不该激活的 slot 置为 active。
     private void internalOfferSlotsToJobManager(JobTable.Connection jobManagerConnection) {
         final JobID jobId = jobManagerConnection.getJobId();
 
@@ -1751,6 +1856,10 @@ public class TaskExecutor extends RpcEndpoint implements TaskExecutorGateway {
             JobMasterId jobMasterId,
             Collection<SlotOffer> offeredSlots,
             UUID offerId) {
+        // ★ 一次 offer 的响应只有三种去向：
+        //   timeout      → 认为 JM 只是慢，重发一次 offer（不释放 slot，slot 还是它的）；
+        //   其它异常     → 认为 JM 真的不可用，释放 slot 还给 RM，让资源能重新分配；
+        //   正常返回     → 被接受的置为 active（此后才允许 submitTask），被拒的释放回 RM。
         return (Iterable<SlotOffer> acceptedSlots, Throwable throwable) -> {
             // check if this is the latest offer
             if (!offerId.equals(currentSlotOfferPerJob.get(jobId))) {
@@ -1835,6 +1944,10 @@ public class TaskExecutor extends RpcEndpoint implements TaskExecutorGateway {
         };
     }
 
+    // JM 的 leader 通知（JobLeaderListenerImpl.jobManagerGainedLeadership）最终走到这里：
+    //   已是同一个 JobMasterId → 直接忽略（重复通知很正常）；
+    //   换了 leader → 先断开旧连接（旧连接上的 Task 会被 failExternally），
+    //   再建立新连接 + 注册 JM 心跳，最后补推一次 slot。
     private void establishJobManagerConnection(
             JobTable.Job job,
             final JobMasterGateway jobMasterGateway,
@@ -1884,6 +1997,12 @@ public class TaskExecutor extends RpcEndpoint implements TaskExecutorGateway {
         job.close();
     }
 
+    // 与 JM 断连的统一处理，三步（对应下面注释里的 1/2/3）：
+    //   1) 让该 job 的所有 Task 外部失败——它们已经没人接收状态上报了，继续跑没有意义；
+    //   2) 把 active slot 退回到 allocated（可再次超时），而不是立刻释放给 RM，
+    //      这样 JM 若在 slotTimeout 之内恢复，还能继续用这些 slot；
+    //   3) 解绑 JM 心跳与注册关系。releasePartitions=false 就是"等 JM 恢复"的路径，
+    //      只有批作业开了 job recovery 时才会这样（见 shouldRetainPartitionsOnJobManagerConnectionLost）。
     private void disconnectJobManagerConnection(
             JobTable.Connection jobManagerConnection, Exception cause, boolean releasePartitions) {
         final JobID jobId = jobManagerConnection.getJobId();
@@ -2114,6 +2233,9 @@ public class TaskExecutor extends RpcEndpoint implements TaskExecutorGateway {
         }
     }
 
+    // ★ Task → JobMaster 的状态上报通道（方向：TM 主动调 JM，不是 JM 来查）。
+    //   注意：若 JM 回 Acknowledge 失败（连接已断、leader 已换），这里会顺手把 Task 标成外部
+    //   失败——因为状态既然送不出去，继续跑只会造成 TM 与 JM 视图不一致，不如尽早失败重试。
     private void updateTaskExecutionState(
             final JobMasterGateway jobMasterGateway, final TaskExecutionState taskExecutionState) {
         final ExecutionAttemptID executionAttemptID = taskExecutionState.getID();
@@ -2165,6 +2287,10 @@ public class TaskExecutor extends RpcEndpoint implements TaskExecutorGateway {
         }
     }
 
+    // ★ slot 释放的唯一集中出口：RM 主动 freeSlot、slot 超时（timeoutSlot）、
+    //   offer 被 JM 拒绝、job 结束等所有路径最终都汇到这里。
+    //   释放后必须主动 notifySlotAvailable 通知 RM，否则 RM 会一直以为这个 slot 还被占着，
+    //   这台 TM 上就再也不会有新的 allocation 落下来（表现为"资源空闲但任务排不上"）。
     private void freeSlotInternal(AllocationID allocationId, Throwable cause) {
         checkNotNull(allocationId);
 
@@ -2320,6 +2446,8 @@ public class TaskExecutor extends RpcEndpoint implements TaskExecutorGateway {
      * This method tries to repopulate the {@link JobTable} and {@link TaskSlotTable} from the local
      * filesystem in a best-effort manner.
      */
+    // TM 重启后先用本地快照把 slot 账本恢复出来（尽力而为：恢复不了的 slot 交给 RM 重新分配），
+    // 这样 JM 再次 submitTask 时可以复用原来的 local state，避免不必要的状态重算。
     private void tryLoadLocalAllocationSnapshots() {
         Collection<SlotAllocationSnapshot> slotAllocationSnapshots =
                 slotAllocationSnapshotPersistenceService.loadAllocationSnapshots();
@@ -2516,6 +2644,11 @@ public class TaskExecutor extends RpcEndpoint implements TaskExecutorGateway {
         }
     }
 
+    // ★ 按 jobId 监听"这个 job 的 JobMaster"的选主变化——这就是 TM 发现 JobMaster 的途径
+    //   （TM 不主动去连 JM，而是订阅 jobId 对应的 leader 地址，见 jobLeaderService.addJob）。
+    //   拿到 leadership → 建立连接并补推 slot；失去 leadership → 断开连接。
+    //   注意 jobManagerLostLeadership 里传入的 !shouldRetainPartitionsOnJobManagerConnectionLost()：
+    //   批作业开启 job recovery 时故意保留分区不释放，等 JM 恢复后直接复用，避免昂贵的重算。
     private final class JobLeaderListenerImpl implements JobLeaderListener {
 
         @Override
@@ -2651,6 +2784,10 @@ public class TaskExecutor extends RpcEndpoint implements TaskExecutorGateway {
             runAsync(() -> TaskExecutor.this.failTask(executionAttemptID, cause));
         }
 
+        // ★ Task 侧发起的状态上报先落到这里（Task#run 通过 TaskManagerActions 回调进来）。
+        //   终态也走这条路径：先 unregisterTaskAndNotifyFinalState 把 Task 从 slot 上摘下来，
+        //   并把最终状态 + 累加器快照一起上报（JM 需要它来判定这次 attempt 是否成功）；
+        //   中间态（INITIALIZING / RUNNING / CANCELING）则直接转发给 JM，不做额外处理。
         @Override
         public void updateTaskExecutionState(final TaskExecutionState taskExecutionState) {
             if (taskExecutionState.getExecutionState().isTerminal()) {
@@ -2689,6 +2826,9 @@ public class TaskExecutor extends RpcEndpoint implements TaskExecutorGateway {
         }
     }
 
+    // ★ 与 JM 的心跳超时只说明"JM 联系不上了"，并不等于作业失败：
+    //   这里先断开连接再让 jobLeaderService 去重连（JM 可能只是换主/重启），
+    //   重连期间本地 Task 会被 failExternally，作业随后按 failover 策略重新调度。
     private class JobManagerHeartbeatListener
             implements HeartbeatListener<
                     AllocatedSlotReport, TaskExecutorToJobManagerHeartbeatPayload> {
@@ -2800,6 +2940,9 @@ public class TaskExecutor extends RpcEndpoint implements TaskExecutorGateway {
             validateRunsInMainThread();
 
             // first check whether the timeout is still valid
+            // ★ 只看"超时的 ResourceID 是否就是当前已建立连接的那个 RM"：
+            //   如果是旧 RM 遗留的心跳超时（RM 换主后的正常现象），必须直接忽略，
+            //   否则会把刚建立好的新连接误断掉，导致 TM 反复重连、slot 迟迟推不出去。
             if (establishedResourceManagerConnection != null
                     && establishedResourceManagerConnection
                             .getResourceManagerResourceId()

@@ -68,6 +68,7 @@ public class JobDispatcherLeaderProcessFactoryFactory
         final JobGraph jobGraph;
 
         try {
+            // 反序列化job graph
             jobGraph =
                     Preconditions.checkNotNull(
                             jobGraphRetriever.retrieveJobGraph(

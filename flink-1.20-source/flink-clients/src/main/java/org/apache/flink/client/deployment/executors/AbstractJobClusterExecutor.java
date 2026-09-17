@@ -71,7 +71,7 @@ public class AbstractJobClusterExecutor<
         // 获取jobGraph
         final JobGraph jobGraph = PipelineExecutorUtils.getJobGraph(pipeline, configuration, userCodeClassloader); // streamGraph
 
-        //YarnClusterDescriptor
+        //YarnClusterDescriptor 内部创建一个YarnClient
         try (final ClusterDescriptor<ClusterID> clusterDescriptor =
                 clusterClientFactory.createClusterDescriptor(configuration)) {
             final ExecutionConfigAccessor configAccessor =
@@ -80,6 +80,7 @@ public class AbstractJobClusterExecutor<
             final ClusterSpecification clusterSpecification =
                     clusterClientFactory.getClusterSpecification(configuration);
 
+            // 准本申请启动flink集群
             final ClusterClientProvider<ClusterID> clusterClientProvider =
                     clusterDescriptor.deployJobCluster(
                             clusterSpecification, jobGraph, configAccessor.getDetachedMode());

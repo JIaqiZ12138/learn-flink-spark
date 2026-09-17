@@ -42,6 +42,7 @@ import java.util.Map;
 
 import static org.apache.flink.util.Preconditions.checkNotNull;
 
+//
 /** The base class for job vertexes. */
 public class JobVertex implements java.io.Serializable {
 

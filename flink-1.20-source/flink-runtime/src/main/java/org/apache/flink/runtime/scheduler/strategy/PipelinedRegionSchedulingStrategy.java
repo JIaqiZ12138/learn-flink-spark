@@ -37,6 +37,15 @@ import java.util.stream.Collectors;
 import static org.apache.flink.util.Preconditions.checkNotNull;
 import static org.apache.flink.util.Preconditions.checkState;
 
+// PipelinedRegion 粒度的调度策略，Flink 1.20 默认使用的调度策略。
+// 调用链：SchedulerBase.startScheduling() → 本类 startScheduling() → maybeScheduleRegions()
+//   → scheduleRegion() → SchedulerOperations.allocateSlotsAndDeploy()（交给 SlotAllocator 分配槽位）。
+// ★ PipelinedRegion（流水线区域）= 执行图中由"流水线边"连成的一组 ExecutionVertex。
+//   划分规则：消费端对某个 ResultPartition 的消费方式为 canBePipelinedConsumed()（即 PIPELINED /
+//   PIPELINED_BOUNDED）时，这条边不切断区域；只有 blocking 边才是区域边界。区域本身在
+//   DefaultExecutionTopology 构造时由 SchedulingPipelinedRegionComputeUtil 算好，本类只消费结果并建索引。
+// ★ 为什么区域必须整体调度：流水线传输要求下游消费时上游已经在运行（数据边产生边消费、没有落盘屏障），
+//   只调度区域的一部分会让下游永远等不到数据，所以"区域"才是最小调度单位；区域之间则可独立调度。
 /**
  * {@link SchedulingStrategy} instance which schedules tasks in granularity of pipelined regions.
  */
@@ -74,6 +83,7 @@ public class PipelinedRegionSchedulingStrategy implements SchedulingStrategy {
         init();
     }
 
+    // 构造函数里就调用的"重活"：一次性把后面判断可调度性需要的三张索引表建好。
     private void init() {
 
         initCrossRegionConsumedPartitionGroups();
@@ -82,6 +92,7 @@ public class PipelinedRegionSchedulingStrategy implements SchedulingStrategy {
 
         initProducedPartitionGroupsOfRegion();
 
+        // regionVerticesSorted：区域 → 区域内顶点列表；scheduleRegion 部署时按这个列表整体下发。
         for (SchedulingExecutionVertex vertex : schedulingTopology.getVertices()) {
             final SchedulingPipelinedRegion region =
                     schedulingTopology.getPipelinedRegionOfVertex(vertex.getId());
@@ -91,6 +102,7 @@ public class PipelinedRegionSchedulingStrategy implements SchedulingStrategy {
         }
     }
 
+    // 索引 1：区域 → 该区域产出的所有 ConsumedPartitionGroup，用于沿流水线边向后扩散找下游区域。
     private void initProducedPartitionGroupsOfRegion() {
         for (SchedulingPipelinedRegion region : schedulingTopology.getAllPipelinedRegions()) {
             Set<ConsumedPartitionGroup> producedPartitionGroupsSetOfRegion = new HashSet<>();
@@ -106,6 +118,8 @@ public class PipelinedRegionSchedulingStrategy implements SchedulingStrategy {
         }
     }
 
+    // 索引 2：找出"跨区域"的消费组 —— 一个 ConsumedPartitionGroup 的产出分区来自多个不同区域。
+    // ★ 这类分组是易错点：既不能当纯区域内依赖，也不能简单当外部依赖，后面判断可调度性时要单独走一条分支。
     private void initCrossRegionConsumedPartitionGroups() {
         final Map<ConsumedPartitionGroup, Set<SchedulingPipelinedRegion>>
                 producerRegionsByConsumedPartitionGroup = new IdentityHashMap<>();
@@ -161,6 +175,8 @@ public class PipelinedRegionSchedulingStrategy implements SchedulingStrategy {
         }
     }
 
+    // 某顶点跑完后，找出因它的 blocking 输出而被解锁的下游区域。
+    // ★ 只有 blocking 分区（不能流水线消费）才在这里解锁；流水线下游在调度本区域时已经一起调度过了。
     private Set<SchedulingPipelinedRegion> getBlockingDownstreamRegionsOfVertex(
             SchedulingExecutionVertex executionVertex) {
         return IterableUtils.toStream(executionVertex.getProducedResults())
@@ -179,14 +195,17 @@ public class PipelinedRegionSchedulingStrategy implements SchedulingStrategy {
     }
 
     @Override
+    // 【入口】作业启动时的第一次调度：只挑出"源区域"开始，其余区域等前面的区域跑完再被解锁。
     public void startScheduling() {
         final Set<SchedulingPipelinedRegion> sourceRegions =
                 IterableUtils.toStream(schedulingTopology.getAllPipelinedRegions())
                         .filter(this::isSourceRegion)
                         .collect(Collectors.toSet());
+        // 从源区域出发，顺着流水线边一层层向后推，直到再也推不出新的可调度区域。
         maybeScheduleRegions(sourceRegions);
     }
 
+    // 源区域 = 没有任何"跨区域"或"外部"的 blocking 输入分组，即它可以直接开跑，不需要等别的区域。
     private boolean isSourceRegion(SchedulingPipelinedRegion region) {
         for (ConsumedPartitionGroup consumedPartitionGroup :
                 region.getAllNonPipelinedConsumedPartitionGroups()) {
@@ -198,6 +217,8 @@ public class PipelinedRegionSchedulingStrategy implements SchedulingStrategy {
         return true;
     }
 
+    // 【失败重调度】区域失败后 ExecutionGraph 会把要重启的顶点交回来（region 是最小重启单位）。
+    // ★ 必须先把区域从 scheduledRegions 里摘掉，否则 maybeScheduleRegions 会认为它已调度过而跳过，永远不重启。
     @Override
     public void restartTasks(final Set<ExecutionVertexID> verticesToRestart) {
         final Set<SchedulingPipelinedRegion> regionsToRestart =
@@ -211,6 +232,7 @@ public class PipelinedRegionSchedulingStrategy implements SchedulingStrategy {
     @Override
     public void onExecutionStateChange(
             final ExecutionVertexID executionVertexId, final ExecutionState executionState) {
+        // 只有 FINISHED 才可能解锁下游 blocking 区域；失败/取消的去向是 restartTasks（走失败重调度路径）。
         if (executionState == ExecutionState.FINISHED) {
             maybeScheduleRegions(
                     getBlockingDownstreamRegionsOfVertex(
@@ -218,9 +240,12 @@ public class PipelinedRegionSchedulingStrategy implements SchedulingStrategy {
         }
     }
 
+    // 空实现：流水线分区的"可消费"事件对本策略没有意义 —— 区域内的流水线下游在同一批里已经一起调度了。
     @Override
     public void onPartitionConsumable(final IntermediateResultPartitionID resultPartitionId) {}
 
+    // ★ 核心循环：反复从候选集里挑出可调度的区域，并把它们的（流水线）下游区域作为下一批候选，
+    //   直到再也推不出新区域 —— 每一轮都是一次"沿流水线边扩散"。最后按拓扑序部署，保证部署顺序与依赖一致。
     private void maybeScheduleRegions(final Set<SchedulingPipelinedRegion> regions) {
         final Set<SchedulingPipelinedRegion> regionsToSchedule = new HashSet<>();
         Set<SchedulingPipelinedRegion> nextRegions = regions;
@@ -233,11 +258,13 @@ public class PipelinedRegionSchedulingStrategy implements SchedulingStrategy {
                 .forEach(this::scheduleRegion);
     }
 
+    // 单轮扩散：先判断候选区域是否可调度；可调度的区域再通过"它产出的流水线分组"找到消费方区域，作为下一轮候选。
     private Set<SchedulingPipelinedRegion> addSchedulableAndGetNextRegions(
             Set<SchedulingPipelinedRegion> currentRegions,
             Set<SchedulingPipelinedRegion> regionsToSchedule) {
         Set<SchedulingPipelinedRegion> nextRegions = new HashSet<>();
         // cache consumedPartitionGroup's consumable status to avoid compute repeatedly.
+        // 缓存分组的可消费状态，避免同一个分组在多个区域之间被反复计算（大图上这里是热点）。
         final Map<ConsumedPartitionGroup, Boolean> consumableStatusCache = new HashMap<>();
         final Set<ConsumedPartitionGroup> visitedConsumedPartitionGroups = new HashSet<>();
 
@@ -279,6 +306,8 @@ public class PipelinedRegionSchedulingStrategy implements SchedulingStrategy {
                 && areRegionInputsAllConsumable(region, consumableStatusCache, regionToSchedule);
     }
 
+    // 【跨界点】真正下发部署：allocateSlotsAndDeploy 会走 ExecutionSlotAllocator 分配槽位，最终部署到 TaskExecutor。
+    // ★ 先 checkState 保证区域内顶点都在 CREATED：重复调度同一区域是 bug，这里用断言兜住。
     private void scheduleRegion(final SchedulingPipelinedRegion region) {
         checkState(
                 areRegionVerticesAllInCreatedState(region),

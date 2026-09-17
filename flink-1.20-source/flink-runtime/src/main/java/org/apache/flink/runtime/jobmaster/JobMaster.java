@@ -140,6 +140,22 @@ import static org.apache.flink.runtime.checkpoint.TaskStateSnapshot.deserializeT
 import static org.apache.flink.util.Preconditions.checkNotNull;
 import static org.apache.flink.util.Preconditions.checkState;
 
+// ============================================================================
+// 【JobMaster 是什么】单个作业运行期的"大脑" —— 一个作业一个实例。
+// ----------------------------------------------------------------------------
+// 职责边界：它只管"一个已经确定下来的作业怎么跑起来"——向 ResourceManager 申请
+// 槽位(slot)、把执行图铺到 TaskManager 上、协调检查点、收集执行状态，并把 JobStatus
+// 的变化上报给上游的 Dispatcher（由 Dispatcher 决定作业记录的最终清理）。
+// 它【不管】"作业从哪来"：JobGraph 的解析、提交、去重都在 Dispatcher 侧完成，
+// JobGraph 是作为构造参数被塞进来的。
+// 生命周期约束：一个 JobMaster 实例自始至终只服务这一个 JobGraph，
+// 因此它的绝大多数字段都不需要按 JobID 分桶，也不存在"切换作业"的语义。
+// 对外身份有二：既是 RPC 端点（实现 JobMasterGateway，供 TaskManager / Dispatcher /
+// ResourceManager 远程调用），也是进程内服务（实现 JobMasterService）。
+// ★ 最容易误解的一点：ExecutionGraph 在本类【构造函数】里就已经建好了，
+//   见构造期的 createScheduler() 与 schedulerNG 赋值处。
+//   start()/onStart() 只是"开机"，不是"建图"。
+// ============================================================================
 /**
  * JobMaster implementation. The job master is responsible for the execution of a single {@link
  * JobGraph}.
@@ -250,6 +266,18 @@ public class JobMaster extends FencedRpcEndpoint<JobMasterId>
 
     // ------------------------------------------------------------------------
 
+    // ★【构造期就是重活期】构造函数不只是做依赖注入，它在这里一口气把运行期需要的
+    //   重组件全部装配好，其中最关键的就是 schedulerNG（内部持有 ExecutionGraph）。
+    //   构造顺序即依赖顺序：
+    //     第 1 步：executionDeploymentTracker / DeploymentReconciler、配置、线程池、BlobWriter
+    //     第 2 步：blocklistHandler（节点黑名单）、slotPoolService（JobMaster 侧的槽位账本）
+    //     第 3 步：partitionTracker（结果分区追踪）、shuffleMaster（Shuffle 服务）
+    //     第 4 步：jobManagerJobMetricGroup、jobStatusListener（作业状态回调入口）
+    //     第 5 步：★ createScheduler(...) —— 就在这里把 JobGraph 变成了 ExecutionGraph
+    //   此时心跳管理器还只是 NoOp 实现、与 ResourceManager 的连接也尚未建立，
+    //   真正的启动动作在 onStart() → startJobExecution() 里。
+
+    // 创建 JobMaster 的内部过程就解析好了ExecutionGraph
     public JobMaster(
             RpcService rpcService,
             JobMasterId jobMasterId,
@@ -356,6 +384,10 @@ public class JobMaster extends FencedRpcEndpoint<JobMasterId>
                         getMainThreadExecutor(),
                         log);
 
+        // JobMaster 侧的"槽位账本"：记录作业声明需要多少槽位、已从 ResourceManager
+        // 拿到哪些槽位、每个槽位分配给了哪个 ExecutionVertex。
+        // ★ 注意它此刻只是【被创建】，还没有 start()，因此还不接受任何针对本 leader 的消息；
+        //   是否启用黑名单(blocklist)决定了这里选哪个 DeclarativeSlotPoolFactory。
         this.slotPoolService =
                 checkNotNull(slotPoolServiceSchedulerFactory)
                         .createSlotPoolService(
@@ -363,6 +395,10 @@ public class JobMaster extends FencedRpcEndpoint<JobMasterId>
                                 createDeclarativeSlotPoolFactory(
                                         jobMasterConfiguration.getConfiguration()));
 
+        // 结果分区（上下游算子之间的数据通道）追踪器：作业结束/失败时由它决定
+        // 释放哪些分区、把哪些分区 promote 成集群级分区（供后续作业复用）。
+        // 注意传进去的是一个 ResourceID → TaskExecutorGateway 的查询函数，
+        // 说明它后续要直接指挥 TaskManager 释放分区。
         this.partitionTracker =
                 checkNotNull(partitionTrackerFactory)
                         .create(
@@ -379,6 +415,12 @@ public class JobMaster extends FencedRpcEndpoint<JobMasterId>
 
         this.failureEnrichers = checkNotNull(failureEnrichers);
 
+        // ★ 执行图就是在这一行、在构造期被构建出来的。
+        //   调用链：本处 → createScheduler() → SlotPoolServiceSchedulerFactory.createScheduler()
+        //     → DefaultSchedulerFactory.createInstance()
+        //     → DefaultExecutionGraphBuilder.buildGraph()
+        //   也就是说，"new JobMaster(...)" 返回时执行图已经存在，
+        //   后面的 start()/startScheduling() 只是让它开始跑，而不是让它存在。
         this.schedulerNG =
                 createScheduler(
                         slotPoolServiceSchedulerFactory,
@@ -396,6 +438,13 @@ public class JobMaster extends FencedRpcEndpoint<JobMasterId>
         this.accumulators = new HashMap<>();
     }
 
+    // ★ 方法名有误导性：createScheduler 不只是"造一个调度器"，它顺带把 JobGraph
+    //   构建成了 ExecutionGraph —— 真正的建图发生在工厂内部
+    //   （DefaultSchedulerFactory.createInstance → DefaultExecutionGraphBuilder.buildGraph）。
+    //   之所以要绕一层工厂：Flink 允许替换调度实现（DefaultScheduler / AdaptiveScheduler 等），
+    //   JobMaster 只面向 SchedulerNG 接口编程，不关心建图细节。
+    //   传进去的 slotPoolService / shuffleMaster / partitionTracker 都是构造期刚建好的组件，
+    //   之后会被 Scheduler 与 ExecutionGraph 长期持有。
     private SchedulerNG createScheduler(
             SlotPoolServiceSchedulerFactory slotPoolServiceSchedulerFactory,
             ExecutionDeploymentTracker executionDeploymentTracker,
@@ -454,6 +503,8 @@ public class JobMaster extends FencedRpcEndpoint<JobMasterId>
     // Lifecycle management
     // ----------------------------------------------------------------------------------------------
 
+    // ★ JobMaster 自己并不重写 start()：父类 RpcEndpoint.start() 负责把 RPC 端点挂起来，
+    //   挂好之后回调本方法。所以"启动 JobMaster"的实质逻辑全在 startJobExecution() 里。
     @Override
     protected void onStart() throws JobMasterException {
         try {
@@ -466,6 +517,8 @@ public class JobMaster extends FencedRpcEndpoint<JobMasterId>
         }
     }
 
+    // 生命周期终点（RPC 端点关闭时的回调）：先优雅地停掉作业执行，再拆掉所有连接。
+    // 具体动作见 stopJobExecution()。
     /** Suspend the job and shutdown all other services including rpc. */
     @Override
     public CompletableFuture<Void> onStop() {
@@ -499,6 +552,9 @@ public class JobMaster extends FencedRpcEndpoint<JobMasterId>
         return CompletableFuture.completedFuture(Acknowledge.get());
     }
 
+    // TaskManager 上报"某次执行尝试(ExecutionAttempt)状态变化"的入口。
+    // JobMaster 在此不做任何判断，直接交给 SchedulerNG，由它驱动 ExecutionGraph 的状态机
+    // 以及失败恢复(failover)；返回 false 表示这个 attempt 已经不在执行图里了（例如已被取消或重启过）。
     /**
      * Updates the task execution state for a given task.
      *
@@ -705,6 +761,11 @@ public class JobMaster extends FencedRpcEndpoint<JobMasterId>
         }
     }
 
+    // ★ TaskExecutor 把本地空闲槽位"献"给 JobMaster 的入口（JobMasterGateway 的 RPC 方法）。
+    //   JobMaster 自己不实现任何槽位分配策略：它把 TaskManagerLocation 与
+    //   RpcTaskManagerGateway 一起转交给 slotPoolService（槽位账本），
+    //   由 SlotPool 决定是立刻分配给某个 ExecutionVertex，还是先存起来备用。
+    //   查不到注册记录说明对方是过期/未注册的 TaskManager，直接拒绝。
     @Override
     public CompletableFuture<Collection<SlotOffer>> offerSlots(
             final ResourceID taskManagerId, final Collection<SlotOffer> slots, final Time timeout) {
@@ -727,6 +788,9 @@ public class JobMaster extends FencedRpcEndpoint<JobMasterId>
                         slots));
     }
 
+    // 槽位分配失败的处理：让槽位账本把该 allocation 标记为失败，并回收它。
+    // 若该 TaskManager 上既没有可用槽位、也没有被追踪的结果分区，
+    // 就顺手把这个空 TaskManager 断开，避免白占资源。
     @Override
     public void failSlot(
             final ResourceID taskManagerId,
@@ -766,6 +830,13 @@ public class JobMaster extends FencedRpcEndpoint<JobMasterId>
                                 resourceId.getStringWithMetadata())));
     }
 
+    // ★ TaskManager 向本 JobMaster 注册的入口。校验 jobId 之后依次做三件事：
+    //   1) 解析 TaskManager 地址（是否取主机名由 RETRIEVE_TASK_MANAGER_HOSTNAME 决定）；
+    //   2) 处理重复注册：sessionId 相同则幂等返回成功；sessionId 变了说明 TM 重启过，
+    //      先断开旧连接再重新登记；
+    //   3) RPC 连接建好之后，才把 TaskManager 写进 registeredTaskManagers，纳入心跳监控，
+    //      并同步登记到槽位账本。
+    //   ★ offerSlots 只对已注册的 TaskManager 生效，所以注册是"能收槽位"的前置条件。
     @Override
     public CompletableFuture<RegistrationResponse> registerTaskManager(
             final JobID jobId,
@@ -1135,6 +1206,12 @@ public class JobMaster extends FencedRpcEndpoint<JobMasterId>
     // -- job starting and stopping
     // -----------------------------------------------------------------
 
+    // ★ JobMaster 的启动顺序都在这里，且顺序不能随意调换：
+    //     第 1 步：向 ShuffleMaster 注册本作业的 JobShuffleContext；
+    //     第 2 步：startJobMasterServices() —— 建心跳管理器、启动槽位账本，
+    //             并激活 ResourceManager 的选主监听（随后才会去建立 RM 连接）；
+    //     第 3 步：startScheduling() —— 到这里才真正开始调度。
+    //   一句话：先"能通消息"，再"能要资源"，最后才"派活"。
     private void startJobExecution() throws Exception {
         validateRunsInMainThread();
 
@@ -1149,9 +1226,12 @@ public class JobMaster extends FencedRpcEndpoint<JobMasterId>
                 jobGraph.getJobID(),
                 getFencingToken());
 
+        // 开始调度
         startScheduling();
     }
 
+    // ★ 这里的顺序同样有讲究：先 start() 槽位账本（此后它才开始接受针对本 leader 的消息），
+    //   再监听 ResourceManager 选主。选主通知是异步到达的，因此本方法不会阻塞在"等 RM"上。
     private void startJobMasterServices() throws Exception {
         try {
             this.taskManagerHeartbeatManager = createTaskManagerHeartbeatManager(heartbeatServices);
@@ -1199,6 +1279,9 @@ public class JobMaster extends FencedRpcEndpoint<JobMasterId>
         ExceptionUtils.tryRethrowException(resultingException);
     }
 
+    // 停止方向与启动相反：先让调度停下（stopScheduling() 会 closeAsync 掉 schedulerNG，
+    // 从而取消执行图里所有 Execution），再注销 Shuffle、断开与 TaskManager /
+    // ResourceManager 的连接。用 runAfterwardsAsync 串联，保证"先停调度、后拆连接"的次序。
     private CompletableFuture<Void> stopJobExecution(final Exception cause) {
         validateRunsInMainThread();
 
@@ -1231,10 +1314,16 @@ public class JobMaster extends FencedRpcEndpoint<JobMasterId>
         resourceManagerHeartbeatManager.stop();
     }
 
+    // ★ 调度真正开始的时刻。前面所有动作（建图、连 RM、收槽位）都只是准备，
+    //   控制权在这里交给 SchedulerNG.startScheduling()：它检查作业是否满足启动条件
+    //   （例如所需资源是否到位），然后按拓扑顺序把算子链部署到 TaskManager 上。
+    //   ★ 注意它是"非阻塞"的：资源不够时调度只是挂起等待，不会抛异常。
     private void startScheduling() {
         schedulerNG.startScheduling();
     }
 
+    // 先关掉指标组和状态监听（避免停止过程中又被回调进 JobMaster），
+    // 再 closeAsync() 掉调度器 —— 执行图里的所有 Execution 会被取消并做资源清理。
     private CompletableFuture<Void> stopScheduling() {
         jobManagerJobMetricGroup.close();
         jobStatusListener.stop();
@@ -1244,6 +1333,9 @@ public class JobMaster extends FencedRpcEndpoint<JobMasterId>
 
     // ----------------------------------------------------------------------------------------------
 
+    // JobMaster 出错的统一出口：JVM 级致命错误交给 fatalErrorHandler 直接终止进程；
+    // 其余错误走 jobCompletionActions.jobMasterFailed() 通知 Dispatcher，
+    // 由 Dispatcher 决定是否重启/恢复这个 JobMaster。
     private void handleJobMasterError(final Throwable cause) {
         if (ExceptionUtils.isJvmFatalError(cause)) {
             log.error("Fatal error occurred on JobManager.", cause);
@@ -1255,6 +1347,14 @@ public class JobMaster extends FencedRpcEndpoint<JobMasterId>
         }
     }
 
+    // ★ 作业状态收敛到终态时的收尾动作，由 Scheduler 经 JobStatusListener 回调过来。
+    //   只有"全局终态"（FINISHED / CANCELED / FAILED / SUSPENDED）才处理：
+    //     - FINISHED：非集群分区直接释放；集群级分区 stopTracking 后 promote，保留给后续复用；
+    //     - 其他终态：所有被追踪的分区一律释放。
+    //   随后在 futureExecutor 里等分区处理完，再把 ExecutionGraphInfo 交给
+    //   jobCompletionActions.jobReachedGloballyTerminalState() 上报 Dispatcher，
+    //   由 Dispatcher 去清理作业记录并关掉 JobMaster 本身。
+    //   ★ 分区释放/提升失败不会让作业失败，只打 warning：TaskManager 最终会自行清理。
     private void jobStatusChanged(final JobStatus newJobStatus) {
         validateRunsInMainThread();
         if (newJobStatus.isGloballyTerminalState()) {
@@ -1297,6 +1397,9 @@ public class JobMaster extends FencedRpcEndpoint<JobMasterId>
         }
     }
 
+    // ResourceManager 选主变化的回调（已经 runAsync 切回 RPC 主线程）。
+    // ★ 套路是"先断后连"：不管之前连着谁，先关掉旧连接再重连，
+    //   从而保证任意时刻只与一个 ResourceManager 保持连接。
     private void notifyOfNewResourceManagerLeader(
             final String newResourceManagerAddress, final ResourceManagerId resourceManagerId) {
         resourceManagerAddress =
@@ -1354,6 +1457,12 @@ public class JobMaster extends FencedRpcEndpoint<JobMasterId>
         resourceManagerConnection.start();
     }
 
+    // ★ 与 ResourceManager 注册真正成功后的动作 —— 走到这里 JobMaster 才有能力要资源。
+    //   依次发生：记录已建立的连接 → blocklistHandler / slotPoolService /
+    //   partitionTracker 分别接入 RM（★ slotPoolService.connectToResourceManager()
+    //   之后才会真正开始为作业申请槽位）→ 把 RM 纳入心跳监控。
+    //   在此之前调度其实已经开始，只是"没资源可要"，会停在等待资源的状态。
+    //   如果此时已经切了 leader（连接的 targetLeaderId 对不上），则丢弃这个过期响应。
     private void establishResourceManagerConnection(final JobMasterRegistrationSuccess success) {
         final ResourceManagerId resourceManagerId = success.getResourceManagerId();
 
@@ -1590,6 +1699,10 @@ public class JobMaster extends FencedRpcEndpoint<JobMasterId>
 
     // ----------------------------------------------------------------------------------------------
 
+    // Scheduler 中 ExecutionGraph 的 JobStatus 变化出口。
+    // ★ 这里必须 runAsync 切回主线程：ExecutionGraph 的回调不在 RPC 线程上，
+    //   而 jobStatusChanged() 要操作 partitionTracker 等非线程安全的状态。
+    //   stop() 用来在 JobMaster 关闭时关掉这个"水龙头"，避免关闭过程中又被回调。
     private class JobManagerJobStatusListener implements JobStatusListener {
 
         private volatile boolean running = true;
@@ -1609,6 +1722,11 @@ public class JobMaster extends FencedRpcEndpoint<JobMasterId>
         }
     }
 
+    // 与 TaskManager 的心跳。三个作用：
+    //   - 超时 / 不可达 → 断开该 TaskManager，并让它上面的槽位失败；
+    //   - reportPayload 带回"执行部署报告"和累加器：前者用于与 JobMaster 侧的部署记录
+    //     对账，发现 TaskManager 上多跑或少跑了哪些 ExecutionAttempt；
+    //   - retrievePayload 把 JobMaster 侧的 AllocatedSlotReport 捎回 TaskManager。
     private class TaskManagerHeartbeatListener
             implements HeartbeatListener<
                     TaskExecutorToJobManagerHeartbeatPayload, AllocatedSlotReport> {
@@ -1661,6 +1779,9 @@ public class JobMaster extends FencedRpcEndpoint<JobMasterId>
         }
     }
 
+    // 与 ResourceManager 之间的心跳。
+    // ★ 心跳丢失不会让作业失败，只是重连 ResourceManager —— 作业已经拿到的槽位仍然有效，
+    //   这一点与 TaskManager 心跳超时（会连带槽位失败）不同。
     private class ResourceManagerHeartbeatListener implements HeartbeatListener<Void, Void> {
 
         @Override

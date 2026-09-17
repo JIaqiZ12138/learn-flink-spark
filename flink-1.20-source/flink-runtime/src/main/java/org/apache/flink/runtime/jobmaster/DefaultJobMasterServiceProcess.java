@@ -55,6 +55,11 @@ import java.util.function.Function;
  *   <li>{@link Exception} to signal an unexpected failure
  * </ul>
  */
+// JobMasterService 的状态机持有者：未启动 / 运行中 / 已关闭。
+// 分工：JobMasterServiceLeadershipRunner 管“选主”，本类管“这一任 leader 的 JobMaster 生命周期”。
+// ★ 构造函数里就异步发起 JobMaster 创建，此时属于“运行中但未就绪”；closeAsync() 置 isRunning=false
+//   并关掉 JobMaster，进入“已关闭”；若期间 JobMaster 意外死亡，则判定作业失败。
+// 结果统一从 resultFuture 冒泡给 runner：初始化失败 / 作业全局终态 / 异常终止。
 public class DefaultJobMasterServiceProcess
         implements JobMasterServiceProcess, OnCompletionActions {
 
@@ -88,9 +93,14 @@ public class DefaultJobMasterServiceProcess
             Function<Throwable, ArchivedExecutionGraph> failedArchivedExecutionGraphFactory) {
         this.jobId = jobId;
         this.leaderSessionId = leaderSessionId;
+        // ★【执行图在这里被构建】createJobMasterService 内部异步 new JobMaster(...)，
+        //   而 JobMaster 构造函数里就会调 createScheduler() → DefaultScheduler
+        //   → DefaultExecutionGraphBuilder.buildGraph()，所以“建图”就发生在这一刻。
         this.jobMasterServiceFuture =
                 jobMasterServiceFactory.createJobMasterService(leaderSessionId, this);
 
+        // ★ 必须观察创建结果：JobMaster 建图失败（例如用户 jar 缺类）不能静默，
+        //   要包装成 JobInitializationException 并以 forInitializationFailure 结束 resultFuture。
         jobMasterServiceFuture.whenComplete(
                 (jobMasterService, throwable) -> {
                     if (throwable != null) {
@@ -116,6 +126,7 @@ public class DefaultJobMasterServiceProcess
                 });
     }
 
+    // ★ leaderAddressFuture 完成会让 runner 去 confirmLeadership —— 这一步做完才算真正“当上主”。
     private void registerJobMasterServiceFutures(JobMasterService jobMasterService) {
         LOG.debug(
                 "Successfully created the JobMasterService for job {} under leader id {}.",
@@ -124,6 +135,8 @@ public class DefaultJobMasterServiceProcess
         jobMasterGatewayFuture.complete(jobMasterService.getGateway());
         leaderAddressFuture.complete(jobMasterService.getAddress());
 
+        // ★ 运行期间 JobMaster 意外退出（例如致命错误）会走到这里；此时 isRunning 仍为 true，
+        //   说明是非预期死亡，直接把作业判失败。
         jobMasterService
                 .getTerminationFuture()
                 .whenComplete(
@@ -143,6 +156,8 @@ public class DefaultJobMasterServiceProcess
                         });
     }
 
+    // 关闭语义 = 这一任 leader 结束：★ 用 JobNotFinishedException 结束 resultFuture，
+    // 让 runner 知道“本进程没把作业跑完”，以此区别于作业真正完成。
     @Override
     public CompletableFuture<Void> closeAsync() {
         synchronized (lock) {
@@ -209,6 +224,7 @@ public class DefaultJobMasterServiceProcess
         return leaderAddressFuture;
     }
 
+    // OnCompletionActions 回调之一：作业到达 FINISHED/CANCELED/FAILED 全局终态 → 以成功结果结束。
     @Override
     public void jobReachedGloballyTerminalState(ExecutionGraphInfo executionGraphInfo) {
         LOG.debug(
@@ -219,6 +235,8 @@ public class DefaultJobMasterServiceProcess
         resultFuture.complete(JobManagerRunnerResult.forSuccess(executionGraphInfo));
     }
 
+    // ★ 失败路径：JobMaster 报错 → resultFuture 异常完成 → JobMasterServiceLeadershipRunner 在
+    //   forwardResultFuture/onJobCompletion 接住 → 最终成为 Dispatcher 看到的作业失败。
     @Override
     public void jobMasterFailed(Throwable cause) {
         LOG.debug("Job {} under leader id {} failed.", jobId, leaderSessionId);

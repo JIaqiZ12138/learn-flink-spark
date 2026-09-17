@@ -142,6 +142,22 @@ import static org.apache.flink.util.Preconditions.checkState;
  *
  * <p>Each Task is run by one dedicated thread.
  */
+// ★ Task = "一个并行子任务的一次执行尝试"（one attempt），是 TM 侧最小的调度与执行单元。
+//   对应关系自顶向下（这是最容易绕晕的地方）：
+//     JobGraph 的 JobVertex（一个算子/算子链）
+//       → ExecutionGraph 按并行度展开成 parallelism 个 ExecutionVertex
+//         → 每个 ExecutionVertex 的每一次执行尝试是一个 Execution（带 attemptNumber）
+//           → 在 TaskManager 上落成一个 Task，由 executionAttemptID 唯一标识这次尝试。
+//   ★ 所以"重试"不是把同一个 Task 重跑，而是同一个 ExecutionVertex 产生新的
+//   ExecutionAttemptID，在（可能是另一台）TM 上新建一个全新的 Task 对象。
+//
+//   它实现 Runnable：构造阶段只做准备（网络 reader/writer、状态管理器、指标组），
+//   真正的执行在自己的专用线程里——TaskExecutor.submitTask() → startTaskThread() → run()。
+//   这个线程负责实例化并驱动 TaskInvokable（流式作业里就是 StreamTask），
+//   用户的算子链代码最终跑在 StreamTask 的 mailbox 线程上（本线程即该 mailbox 线程）。
+//
+//   它不感知全局拓扑，也不知道自己是第几次尝试、是否还有别的兄弟子任务；
+//   它只持有本次执行所需的 ID、配置，以及要消费/产出的中间结果描述。
 public class Task
         implements Runnable, TaskSlotPayload, TaskActions, PartitionProducerStateProvider {
 
@@ -310,6 +326,9 @@ public class Task
      */
     private UserCodeClassLoader userCodeClassLoader;
 
+    // ★ 构造函数刻意是"纯准备、无副作用"的：invokable 在这里【不】创建，
+    //   网络 reader/writer 只建对象不做 setup，执行线程只 new 不 start。
+    //   原因是下面 javadoc 说的：一旦部署失败，TM 没有任何机会回滚构造期做过的事。
     /**
      * <b>IMPORTANT:</b> This constructor may not start any work that would need to be undone in the
      * case of a failing task deployment.
@@ -442,6 +461,9 @@ public class Task
 
         invokableHasBeenCanceled = new AtomicBoolean(false);
 
+        // ★ 只创建线程、不启动：startTaskThread() 由 TaskExecutor.submitTask() 在
+        //   taskSlotTable.addTask(task) 成功之后才调用，保证 slot 账本先登记好，
+        //   线程不会跑在一个"账本上还不存在"的 slot 上。
         // finally, create the executing thread, but do not start it
         executingThread = new Thread(TASK_THREADS_GROUP, this, taskNameWithSubtask);
     }
@@ -563,11 +585,29 @@ public class Task
         return failureCause;
     }
 
+    // ★ 状态机（每个 Task 只有一个 ExecutionState，靠 CAS 原子推进，见 transitionState）：
+    //     CREATED → DEPLOYING → INITIALIZING → RUNNING → FINISHED
+    //        └────────┴───────────┴──────────────┴─────→ FAILED（任何状态都可能直接到 FAILED）
+    //     CANCELING → CANCELED（cancelExecution 走这条路径）
+    //   Task 自己的视角只从 CREATED 开始（更早的 SCHEDULED 属于 JobMaster 的 Execution）；
+    //   CANCELING / FAILED 可能被外部线程（TM 的 cancelTask、failExternally）抢先设置，
+    //   因此 run() 一开始必须先"认领"当前状态，抢不到就立刻走终止流程（见 doRun 开头）。
     /** Starts the task's thread. */
     public void startTaskThread() {
         executingThread.start();
     }
 
+    // ★★ 任务线程的主入口：由 TaskExecutor.submitTask() → startTaskThread() 拉起。
+    //   本方法只做两件事：补上 job 的 MDC 日志上下文，并保证 terminationFuture 一定完成
+    //   （TM/JM 用它作为"这次 attempt 已收尾、可以回收结果分区"的收尾信号）。
+    //   真正的逻辑都在 doRun()，主线如下（对应 doRun 里的分段注释）：
+    //     第 1 步 抢占初始状态 CREATED → DEPLOYING；抢不到说明已被外部取消/失败，直接结束；
+    //     第 2 步 准备用户类加载器（可能要下载 job 的 jar）、注册网络分区与输入门、分发缓存文件；
+    //     第 3 步 构造 RuntimeEnvironment，反射实例化 invokable（流式作业即 StreamTask）；
+    //     第 4 步 restoreAndInvoke()：INITIALIZING → restore() → RUNNING → invoke() ★ 用户代码
+    //     第 5 步 正常返回：finish() 所有产出分区，并把状态推进到 FINISHED；
+    //     第 6 步 任何异常进 catch：CancelTaskException 转 CANCELED，其余转 FAILED 并记录 failureCause；
+    //     第 7 步 finally 释放网络/内存/缓存资源，notifyFinalState() 把终态上报给 TM。
     /** The core work method that bootstraps the task and executes its code. */
     @Override
     public void run() {
@@ -760,6 +800,10 @@ public class Task
             // by the time we switched to running.
             this.invokable = invokable;
 
+            // ★ 到这一步用户代码才真正开跑：restoreAndInvoke 内部依次完成
+            //   restore()（恢复状态，状态转 INITIALIZING）→ invoke()（一直跑到数据读完或作业被取消，
+            //   状态转 RUNNING）。每次状态切换都会经 taskManagerActions.updateTaskExecutionState
+            //   上报给 TM，再由 TM 转发给 JM——这就是"Task 状态如何回到 JobMaster"的完整路径。
             restoreAndInvoke(invokable);
 
             // make sure, we enter the catch block if the task leaves the invoke() method due
@@ -892,6 +936,10 @@ public class Task
         }
     }
 
+    // 异常进入状态机之前先做两件"预处理"：
+    //   1) 剥掉框架包装异常（WrappingRuntimeException），让用户看到的栈更干净；
+    //   2) ★ JVM 级致命错误或 OOM 直接 halt JVM——此时 TM 的内存/状态已不可信，
+    //      与其带着半死不活的 TM 继续被调度，不如让 YARN/K8s 直接重启整个容器。
     /** Unwrap, enrich and handle fatal errors. */
     private Throwable preProcessException(Throwable t) {
         // unwrap wrapped exceptions to make stack traces more compact
@@ -922,6 +970,10 @@ public class Task
         return t;
     }
 
+    // ★ 状态推进与用户代码调用的绑定点，也是 Task → StreamTask 的唯一入口：
+    //   DEPLOYING → INITIALIZING（上报）→ invokable.restore() → RUNNING（上报）→ invokable.invoke()。
+    //   任何一步抛出异常都从这里抛回 doRun 的 catch，由它决定最终是 CANCELED 还是 FAILED；
+    //   无论成功失败，cleanUp 都恰好被调用一次（失败路径会把异常一并传进去）。
     private void restoreAndInvoke(TaskInvokable finalInvokable) throws Exception {
         try {
             // switch to the INITIALIZING state, if that fails, we have been canceled/failed in the
@@ -988,6 +1040,10 @@ public class Task
         }
     }
 
+    // 释放资源必须区分任务结局：
+    //   ✔ 正常结束 → 只 close 分区，让下游还能把已经写好的数据读完；
+    //   ✘ 取消/失败 → 先 fail 所有产出分区，主动通知下游"别等了，这批数据不完整"，
+    //     否则下游可能一直阻塞在等这个分区的数据上（表现为作业卡住不结束）。
     /**
      * Releases resources before task exits. We should also fail the partition to release if the
      * task has failed, is canceled, or is being canceled at the moment.
@@ -1066,6 +1122,10 @@ public class Task
         return userCodeClassLoader;
     }
 
+    // ★ 状态上报的终点：Task 只在自己线程里"推"状态给 TM，TM 再转发给 JobMaster
+    //   （方向固定：Task → TaskManagerActions → TaskExecutor → JobMaster）。
+    //   ★ Task 从不主动向 JM 拉取信息，也完全不感知 JM 换了 leader——
+    //     连接层面的换主由 TaskExecutor 兜住（旧连接断开时 Task 会被 failExternally）。
     private void notifyFinalState() {
         checkState(executionState.isTerminal());
         taskManagerActions.updateTaskExecutionState(
@@ -1076,6 +1136,9 @@ public class Task
         taskManagerActions.notifyFatalError(message, cause);
     }
 
+    // ★ 用 AtomicReferenceFieldUpdater 做 CAS 状态推进：这是"外部线程取消/失败"与
+    //   "任务线程自己推进"之间的唯一同步点。CAS 失败就意味着状态已被并发改掉，
+    //   调用方必须据此放弃当前动作（例如放弃 finish，改走 CANCELED 分支），绝不能强行覆盖。
     /**
      * Try to transition the execution state from the current state to the new state.
      *
@@ -1145,6 +1208,11 @@ public class Task
     //  Canceling / Failing the task from the outside
     // ----------------------------------------------------------------------------------------------------------------
 
+    // ★ 取消（cancel）与失败（failExternally）的区别：
+    //   cancelExecution() 走 CANCELING → CANCELED，语义是"这个结果我们不要了"（用户 stop、
+    //   JM 主动取消、上游失败导致的连带取消），不算错误，failureCause 保持为 null；
+    //   failExternally() 直接进 FAILED，语义是"这次执行出错了"，必须携带 cause。
+    //   两者都只是给状态"打标记"并异步去中断用户代码，方法本身不阻塞，见下面的内部实现。
     /**
      * Cancels the task execution. If the task is already in a terminal state (such as FINISHED,
      * CANCELED, FAILED), or if the task is already canceling this does nothing. Otherwise it sets
@@ -1160,6 +1228,11 @@ public class Task
         }
     }
 
+    // ★ 为什么必须有"外部失败"这条路径：很多失败原因根本不在本次执行的代码里，而在 Task 之外——
+    //   例如 JM 断连（TaskExecutor.disconnectJobManagerConnection 会批量调用它）、
+    //   上游分区数据不可用（updatePartitions 失败）、算子事件投递失败、checkpoint 触发失败等。
+    //   这些场景下 Task 线程往往正阻塞在用户代码里（读数据、等锁），自己无法感知，
+    //   只能由 TM 线程替它把状态置为 FAILED 并中断它，从而让 JM 尽快重新调度。
     /**
      * Marks task execution failed for an external reason (a reason other than the task code itself
      * throwing an exception). If the task is already in a terminal state (such as FINISHED,
@@ -1196,6 +1269,12 @@ public class Task
         }
     }
 
+    // 取消 / 失败的公共实现，一共三件事：
+    //   1) 已经是终态或已在 CANCELING → 直接返回（幂等，重复取消是正常现象）；
+    //   2) CREATED / DEPLOYING → 只改状态即可，invokable 还没被调用过，不需要取消它；
+    //   3) INITIALIZING / RUNNING → 先改状态，再起【独立线程】去调 invokable.cancel()。
+    // ★ 第 3 点为什么必须另起线程：用户代码的 cancel 可能阻塞（例如卡在 I/O 或锁上），
+    //   若在调用方线程（常常是 TM 的 RPC 主线程）里直接调用，会把整个 TM 的 RPC 处理拖死。
     @VisibleForTesting
     void cancelOrFailAndCancelInvokableInternal(ExecutionState targetState, Throwable cause) {
         cause = preProcessException(cause);
@@ -1337,6 +1416,12 @@ public class Task
     //  Notifications on the invokable
     // ------------------------------------------------------------------------
 
+    // ★ 检查点（checkpoint）的触发方向是 JM → TM → Task → StreamTask：
+    //   CheckpointCoordinator → JobMaster → TaskExecutor.triggerCheckpoint()（RPC）
+    //     → 本方法 → CheckpointableTask.triggerCheckpointAsync()（投递进 mailbox 异步执行）。
+    //   注意这里是【异步触发】：立即返回并不代表 checkpoint 已完成；
+    //   无法触发（非 RUNNING、mailbox 已关）时必须调用 declineCheckpoint 主动拒绝，
+    //   否则 CheckpointCoordinator 会一直等这个 subtask，导致检查点超时。
     /**
      * Calls the invokable to trigger a checkpoint.
      *
@@ -1549,6 +1634,8 @@ public class Task
     //  Utilities
     // ------------------------------------------------------------------------
 
+    // 无论是正常结束、异常退出还是取消，最后都要在用户代码上调一次 cancel()，
+    // 让算子有机会关闭自己的资源；invokableHasBeenCanceled 保证它不会被重复调用。
     private void cancelInvokable(TaskInvokable invokable) {
         // in case of an exception during execution, we still call "cancel()" on the task
         if (invokable != null && invokableHasBeenCanceled.compareAndSet(false, true)) {
@@ -1595,6 +1682,11 @@ public class Task
         }
     }
 
+    // ★ 反射实例化的就是作业提交时写进 TaskInformation 的 invokableClass：
+    //   流式作业是 StreamTask 的子类（由 StreamGraph 生成），批处理则是 BatchTask 等。
+    //   "创建 StreamTask"这一步到此完成，真正的执行交给 restoreAndInvoke()；
+    //   构造函数固定接收一个 Environment——它是用户代码与运行时之间的唯一契约
+    //   （读输入、写输出、拿状态、发算子事件都通过它）。
     /**
      * Instantiates the given task invokable class, passing the given environment (and possibly the
      * initial task state) to the task's constructor.

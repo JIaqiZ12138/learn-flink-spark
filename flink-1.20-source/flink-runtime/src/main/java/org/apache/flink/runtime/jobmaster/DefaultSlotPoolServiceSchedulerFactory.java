@@ -97,7 +97,7 @@ public final class DefaultSlotPoolServiceSchedulerFactory
     @Override
     public SchedulerNG createScheduler(
             Logger log,
-            JobGraph jobGraph,
+            JobGraph jobGraph, //
             Executor ioExecutor,
             Configuration configuration,
             SlotPoolService slotPoolService,
@@ -120,7 +120,7 @@ public final class DefaultSlotPoolServiceSchedulerFactory
             throws Exception {
         return schedulerNGFactory.createInstance(
                 log,
-                jobGraph,
+                jobGraph, //
                 ioExecutor,
                 configuration,
                 slotPoolService,

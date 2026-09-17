@@ -557,11 +557,12 @@ public class YarnClusterDescriptor implements ClusterDescriptor<ApplicationId> {
         LOG.warn(
                 "Job Clusters are deprecated since Flink 1.15. Please use an Application Cluster/Application Mode instead.");
         try {
+            //
             return deployInternal(
                     clusterSpecification,
                     "Flink per-job cluster",
-                    getYarnJobClusterEntrypoint(),
-                    jobGraph,
+                    getYarnJobClusterEntrypoint(), // per-job模式下的AM YarnJobClusterEntrypoint
+                    jobGraph, //jobGraph
                     detached);
         } catch (Exception e) {
             throw new ClusterDeploymentException("Could not deploy Yarn job cluster.", e);
@@ -597,6 +598,8 @@ public class YarnClusterDescriptor implements ClusterDescriptor<ApplicationId> {
      * @param jobGraph A job graph which is deployed with the Flink cluster, {@code null} if none
      * @param detached True if the cluster should be started in detached mode
      */
+
+    // 参数校验 模式识别 提交一个yarn application 并申请启动 applicationMaster
     private ClusterClientProvider<ApplicationId> deployInternal(
             ClusterSpecification clusterSpecification,
             String applicationName,

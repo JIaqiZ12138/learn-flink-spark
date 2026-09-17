@@ -83,6 +83,8 @@ public class DefaultDispatcherRunnerFactory implements DispatcherRunnerFactory {
 
         // 产出"领导进程工厂"。注意 createJobRunner / createSessionRunner 的区别就固化在
         // 这个 factory 里：per-job 的工厂持有 jobGraphRetriever，session 的持有 DispatcherFactory。
+
+        // 内部反序列化jobGraph
         final DispatcherLeaderProcessFactory dispatcherLeaderProcessFactory =
                 dispatcherLeaderProcessFactoryFactory.createFactory(
                         jobPersistenceComponentFactory,

@@ -32,10 +32,17 @@ import java.util.Collection;
 
 import static org.apache.flink.runtime.entrypoint.ClusterEntrypoint.INTERNAL_CLUSTER_EXECUTION_MODE;
 
+// 【异步创建链的最后一环】DispatcherFactory 的 per-job 实现（枚举单例 INSTANCE，无状态、可随时被回调）：
+//   由选主成功后的 JobDispatcherLeaderProcess.onStart() 回调，走到这里才真正 new 出 Dispatcher。
 /** {@link DispatcherFactory} which creates a {@link MiniDispatcher}. */
 public enum JobDispatcherFactory implements DispatcherFactory {
     INSTANCE;
 
+    // ★ 关键入参 recoveredJobs：per-job 模式下由 AM 启动时的 FileJobGraphRetriever 从 YARN local
+    //   resource 的 job.graph 读回、经 JobDispatcherLeaderProcess 原样透传，长度恰好为 1；它作为
+    //   MiniDispatcher 的 jobGraph 继续下传，最终由父类 startRecoveredJobs 以 ExecutionType.RECOVERY
+    //   拉起 —— 第一个作业是"恢复"而不是 SUBMISSION。fencingToken 是本轮选主拿到的 DispatcherId
+    //   （栅栏令牌，让被抢占的旧 Dispatcher 失效），其余 HA 服务由 partialDispatcherServices 注入。
     @Override
     public MiniDispatcher createDispatcher(
             RpcService rpcService,
@@ -50,6 +57,7 @@ public enum JobDispatcherFactory implements DispatcherFactory {
         final JobResult recoveredDirtyJob =
                 Iterables.getOnlyElement(recoveredDirtyJobResults, null);
 
+        // ★ 异或校验：恢复一个"待跑的作业图"和恢复一个"待清理的脏 JobResult"是两条互斥路径，不能同时给。
         Preconditions.checkArgument(
                 recoveredJobGraph == null ^ recoveredDirtyJob == null,
                 "Either the JobGraph or the recovered JobResult needs to be specified.");

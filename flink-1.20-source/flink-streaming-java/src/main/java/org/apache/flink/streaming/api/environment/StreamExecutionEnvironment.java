@@ -2318,12 +2318,14 @@ public class StreamExecutionEnvironment implements AutoCloseable {
      */
     public JobExecutionResult execute(String jobName) throws Exception {
         final List<Transformation<?>> originalTransformations = new ArrayList<>(transformations);
+        // 获取streamGraph
         StreamGraph streamGraph = getStreamGraph();
         if (jobName != null) {
             streamGraph.setJobName(jobName);
         }
 
         try {
+            // 拿到streamGraph
             return execute(streamGraph);
         } catch (Throwable t) {
             Optional<ClusterDatasetCorruptedException> clusterDatasetCorruptedException =
@@ -2609,8 +2611,10 @@ public class StreamExecutionEnvironment implements AutoCloseable {
      *
      * <p>This is not meant to be used by users. The API methods that create operators must call
      * this method.
+     *
      */
     @Internal
+    // 每增加一个新的算子 调用addOperator 记录 transformation 信息 用于后面Graph的生成
     public void addOperator(Transformation<?> transformation) {
         Preconditions.checkNotNull(transformation, "transformation must not be null.");
         this.transformations.add(transformation);

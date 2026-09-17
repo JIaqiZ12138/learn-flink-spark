@@ -66,6 +66,13 @@ import java.util.function.Supplier;
 import static org.apache.flink.configuration.StateChangelogOptions.STATE_CHANGE_LOG_STORAGE;
 import static org.apache.flink.util.Preconditions.checkNotNull;
 
+// 【核心入口】JobGraph → ExecutionGraph 的唯一构建入口；本类只做“组装”，不做调度。
+// ★ 整条链路都在 JobMaster 的构造函数里同步走完（不是 start() 时）：
+//   JobMaster.<init> → createScheduler() → DefaultSchedulerFactory.createInstance()
+//     → new DefaultScheduler → SchedulerBase.<init> → ExecutionGraphFactory → buildGraph()（本方法）
+// 所以 JobMaster 构造结束时执行图已全量展开；submitJob 之后只是把它调度起来。
+// buildGraph() 内按顺序做 6 件事：①基础信息与运行期依赖 ②new 空壳执行图 ③setJsonPlan
+//   ④master 端初始化 hook ⑤拓扑排序 + attachJobGraph（顶点在这里才展开）⑥检查点/状态后端装配
 /**
  * Utility class to encapsulate the logic of building an {@link DefaultExecutionGraph} from a {@link
  * JobGraph}.
@@ -106,6 +113,8 @@ public class DefaultExecutionGraphBuilder {
         final JobID jobId = jobGraph.getJobID();
         final JobType jobType = jobGraph.getJobType();
 
+        // ---- 第 1 步：准备图外的基础信息与运行期依赖（全在 JobManager 主线程里同步做完）----
+        // JobInformation 随后会被序列化并随 TDD 发往 TaskManager，见下面的 TaskDeploymentDescriptorFactory。
         final JobInformation jobInformation =
                 new JobInformation(
                         jobId,
@@ -141,6 +150,10 @@ public class DefaultExecutionGraphBuilder {
             throw new JobException("Could not create the TaskDeploymentDescriptorFactory.", e);
         }
 
+        // ---- 第 2 步：先 new 出一个“空壳”执行图 ----
+        // ★ 此刻图里还没有任何顶点：顶点是第 5 步 attachJobGraph 才挂上去的。
+        // ★ vertexParallelismStore / vertexAttemptNumberStore 由参数传入，并行度与 maxParallelism
+        //   的解析在调用方（SchedulerBase.computeVertexParallelismStore()）就已经做完了。
         // create a new execution graph, if none exists so far
         final DefaultExecutionGraph executionGraph =
                 new DefaultExecutionGraph(
@@ -166,6 +179,11 @@ public class DefaultExecutionGraphBuilder {
                         markPartitionFinishedStrategy,
                         taskDeploymentDescriptorFactory);
 
+        // ---- 第 3 步：设置 jsonPlan（Web UI 的 Plan 页、REST /jobs/:id/plan 用它）----
+        // ★ 易错点：JsonPlanGenerator.generatePlan(jobGraph) 生成的是 **JobGraph** 的 JSON，
+        //   只有 JobVertex / 并行度 / 边，没有 ExecutionVertex、Execution 这些运行期结构；
+        //   ArchivedExecutionGraph.getJsonPlan() 返回的就是这里塞进去的字符串。
+        // 生成失败不抛出，降级成空 JSON "{}"，保证作业仍能继续提交。
         // set the basic properties
 
         try {
@@ -176,6 +194,8 @@ public class DefaultExecutionGraphBuilder {
             executionGraph.setJsonPlan("{}");
         }
 
+        // ---- 第 4 步：master 端初始化 hook（file sink 在这里建目录、InputFormat 在这里切 split）----
+        // ★ 这是必须在 JobManager 侧先执行的副作用，失败即 JobExecutionException，任务无法部署。
         // initialize the vertices that have a master initialization hook
         // file output formats create directories here, input formats create splits
 
@@ -194,6 +214,10 @@ public class DefaultExecutionGraphBuilder {
                                 + ") has no invokable class.");
             }
 
+            // ★ 这里只取“已解析好”的并行度：JobVertex 里 maxParallelism = -1
+            //   （JobVertex.MAX_PARALLELISM_DEFAULT）表示“用户未设置”，本文件并不解析它；
+            //   解析发生在上游 SchedulerBase.computeVertexParallelismStore()：
+            //   默认取下界 DEFAULT_LOWER_BOUND_MAX_PARALLELISM = 1 << 7 = 128。
             try {
                 vertex.initializeOnMaster(
                         new SimpleInitializeOnMasterContext(
@@ -213,6 +237,12 @@ public class DefaultExecutionGraphBuilder {
                 "Successfully ran initialization on master in {} ms.",
                 (System.nanoTime() - initMasterStart) / 1_000_000);
 
+        // ---- 第 5 步：拓扑排序后 attachJobGraph —— 顶点在这里才真正被展开 ----
+        // ★ 展开关系发生在 DefaultExecutionGraph.attachJobGraph() 内部：
+        //   JobVertex → ExecutionJobVertex（1:1）→ 按 parallelism 展开成 N 个 ExecutionVertex
+        //   → 每个 ExecutionVertex 持有 currentExecution（一次执行尝试，带 attemptNumber，失败后重建）；
+        //   JobVertex 的 IntermediateDataSet → IntermediateResult，消费边 → IntermediateResultPartition。
+        // ★ 必须先拓扑排序：下游 ExecutionVertex 初始化时要 connectToPredecessors() 连到已建好的上游。
         // topologically sort the job vertices and attach the graph to the existing one
         List<JobVertex> sortedTopology = jobGraph.getVerticesSortedTopologicallyFromSources();
         if (log.isDebugEnabled()) {
@@ -229,6 +259,9 @@ public class DefaultExecutionGraphBuilder {
                     "Successfully created execution graph from job graph {} ({}).", jobName, jobId);
         }
 
+        // ---- 第 6 步：检查点 / 状态后端装配 ----
+        // 是否开启只看 JobGraph.getCheckpointingSettings() 是否为 null，它由客户端（StreamGraph → JobGraph）
+        //   阶段决定，JobManager 端没有独立开关；动态图（adaptive scheduler 会改并行度）不支持检查点，跳过。
         // configure the state checkpointing
         if (isDynamicGraph) {
             // dynamic graph does not support checkpointing so we skip it
@@ -236,6 +269,8 @@ public class DefaultExecutionGraphBuilder {
         } else if (isCheckpointingEnabled(jobGraph)) {
             JobCheckpointingSettings snapshotSettings = jobGraph.getCheckpointingSettings();
 
+            // 优先级链：应用内序列化进来的 state backend（checkpointingSettings）→ JobGraph/集群配置 → 默认值；
+            //   ★ “代码里 setStateBackend 覆盖集群配置”就发生在这里，checkpoint storage 用的是同一套优先级。
             // load the state backend from the application settings
             final StateBackend applicationConfiguredBackend;
             final SerializedValue<StateBackend> serializedAppConfigured =

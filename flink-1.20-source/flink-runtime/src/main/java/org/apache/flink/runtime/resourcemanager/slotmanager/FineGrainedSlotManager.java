@@ -68,6 +68,16 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
+// ResourceManager 侧的槽位管理器 —— ★ Flink 1.20 中 SlotManager 的唯一实现（旧的粗粒度实现已被移除）。
+// 它管两本账：TaskManagerTracker（"集群里有哪几个 TM、每个 TM 有哪些槽位"）与 ResourceTracker
+//   （按作业记录"声明了哪些需求、已经拿到哪些资源"），两者由 ResourceAllocationStrategy 撮合、对账。
+// 撮合路径（文档链路第 5 步）：ResourceManager.declareRequiredResources() → processResourceRequirements()
+//   → checkResourceRequirementsWithDelay() → checkResourceRequirements() → tryFulfillRequirements()
+//   → allocateSlotsAccordingTo()（已有 TM 上分配）或 allocateTaskManagersAccordingTo()（缺资源）
+//   → declareNeededResources() → ResourceAllocator.declareResourceNeeded()【跨界点：RM → 集群管理器】
+//   → ActiveResourceManager.checkResourceDeclarations()
+//   → requestNewWorker() → ResourceManagerDriver.requestResource()（向 YARN/K8s 要一个 TM 容器）
+//   注意：本类里没有 requestNewWorker()，它只负责把"还需要几个什么规格的 worker"声明出去。
 /** Implementation of {@link SlotManager} supporting fine-grained resource management. */
 public class FineGrainedSlotManager implements SlotManager {
     public static final Duration METRICS_UPDATE_INTERVAL = Duration.ofSeconds(1);
@@ -182,6 +192,8 @@ public class FineGrainedSlotManager implements SlotManager {
     }
 
     @Override
+    // 集群刚启动时先关掉"资源不足"通知，给 TM 留出连接时间（源码注释称 grace period）；
+    // 打开时把此前判定为 unfulfillable 的作业一次性补发通知，避免它们被漏掉。
     public void setFailUnfulfillableRequest(boolean failUnfulfillableRequest) {
         checkInit();
         // this sets up a grace period, e.g., when the cluster was started, to give task executors
@@ -214,6 +226,9 @@ public class FineGrainedSlotManager implements SlotManager {
      * @param newBlockedTaskManagerChecker to query whether a task manager is blocked
      */
     @Override
+    // 【生命周期入口】RM 选主成功后调用：注入 main thread executor、ResourceAllocator（跨组件回调，
+    // 最终落到 ResourceManagerDriver）、ResourceEventListener（把"资源不足"回告 JobMaster）。
+    // ★ 同时启动 clusterReconciliation 周期任务（间隔 = taskManagerTimeout），用于回收长期空闲的 TM。
     public void start(
             ResourceManagerId newResourceManagerId,
             Executor newMainThreadExecutor,
@@ -339,6 +354,9 @@ public class FineGrainedSlotManager implements SlotManager {
     }
 
     @Override
+    // 【需求入口】JobMaster 的资源声明经 declareRequiredResources RPC 之后由 RM 转发到这里。
+    // ★ 空需求要单独处理：它表示作业结束或被取消，需要清掉该作业的待分配记录并触发一次对账；
+    //   连续两次空声明会被直接跳过（幂等），避免无意义的重算。
     public void processResourceRequirements(ResourceRequirements resourceRequirements) {
         checkInit();
         if (resourceRequirements.getResourceRequirements().isEmpty()
@@ -368,6 +386,9 @@ public class FineGrainedSlotManager implements SlotManager {
     }
 
     @Override
+    // 【资源入口】TM 启动后向 RM 注册自己。★ 关键分支是 findMatchingPendingTaskManager()：
+    // 若这个 TM 恰好是此前 declareNeededResources() 声明过、但还没出现的 worker，就直接把它上面
+    // 早已算好的"预分配"落地（allocateSlotsForRegisteredPendingTaskManager），省掉一次重算。
     public RegistrationResult registerTaskManager(
             final TaskExecutorConnection taskExecutorConnection,
             SlotReport initialSlotReport,
@@ -428,6 +449,8 @@ public class FineGrainedSlotManager implements SlotManager {
         }
     }
 
+    // 声明需求同样做延迟合并（declareNeededResourceDelay），理由与需求检查一致：把短时间内的多次变化并在一次里算。
+    // ★ 真正干活的是不带 WithDelay 的 declareNeededResources()，别直接调它（源码用 DO NOT 注释强调过）。
     private void declareNeededResourcesWithDelay() {
         Preconditions.checkState(resourceAllocator.isSupported());
 
@@ -451,6 +474,9 @@ public class FineGrainedSlotManager implements SlotManager {
     }
 
     /** DO NOT call this method directly. Use {@link #declareNeededResourcesWithDelay()} instead. */
+    // ★ 这是"向集群声明我要多少 worker"的出口：把已注册 TM（不含 unwanted）+ 在途 pending TM 按
+    //   WorkerResourceSpec 汇总成"我已有多少"，打包成 ResourceDeclaration 交给 ResourceAllocator；
+    //   后者（ActiveResourceManager）会与总数比对，不足就 requestNewWorker() 去要 TM 容器。
     private void declareNeededResources() {
         Map<InstanceID, WorkerResourceSpec> unWantedTaskManagers =
                 taskManagerTracker.getUnWantedTaskManager();
@@ -499,6 +525,8 @@ public class FineGrainedSlotManager implements SlotManager {
         resourceAllocator.declareResourceNeeded(resourceDeclarations);
     }
 
+    // 把 PendingTaskManager 上登记的"预分配"转成真实分配：这些槽位在资源还没到位时就已经算好给谁用了。
+    // ★ 优先复用带预分配记录的 pending TM（见 findMatchingPendingTaskManager），能少一次重算。
     private void allocateSlotsForRegisteredPendingTaskManager(
             PendingTaskManager pendingTaskManager, InstanceID instanceId) {
         Map<JobID, Map<InstanceID, ResourceCounter>> allocations =
@@ -533,6 +561,8 @@ public class FineGrainedSlotManager implements SlotManager {
     }
 
     @Override
+    // TM 掉线：把它上面的槽位全部标记释放（slotStatusSyncer.freeSlot），再从账本中移除。
+    // ★ 只有确实释放过槽位才触发重新撮合，避免每次心跳断开都白算一遍。
     public boolean unregisterTaskManager(InstanceID instanceId, Exception cause) {
         checkInit();
 
@@ -572,6 +602,8 @@ public class FineGrainedSlotManager implements SlotManager {
      * @return true if the slot status has been updated successfully, otherwise false
      */
     @Override
+    // TM 周期性上报槽位状态（跨 JVM 消息）。★ 返回 false 表示同步未成功（如上报的槽位与本地记录冲突），
+    // 这时必须重跑一次撮合，否则账本会和 TM 上的真实槽位长期不一致。
     public boolean reportSlotStatus(InstanceID instanceId, SlotReport slotReport) {
         checkInit();
 
@@ -599,6 +631,7 @@ public class FineGrainedSlotManager implements SlotManager {
      * @param allocationId with which the slot is presumably allocated
      */
     @Override
+    // 槽位被释放后会重新跑一遍撮合：腾出来的资源可能正好满足别的作业（或本作业的其他需求）。
     public void freeSlot(SlotID slotId, AllocationID allocationId) {
         checkInit();
         LOG.debug("Freeing slot {}.", allocationId);
@@ -646,6 +679,12 @@ public class FineGrainedSlotManager implements SlotManager {
     /**
      * DO NOT call this method directly. Use {@link #checkResourceRequirementsWithDelay()} instead.
      */
+    // ★★ 撮合主流程（本文件最核心的一段）：
+    // 第 1 步：从 ResourceTracker 取"各作业还缺什么"（声明需求 - 已获得资源）；若已无缺口，则检查是否需要
+    //         把多算的 pending worker 记录清掉（仅声明式路径 ResourceAllocator.isSupported()）。
+    // 第 2 步：交给 ResourceAllocationStrategy.tryFulfillRequirements()，让它同时在"已注册 TM 的剩余资源"
+    //         和"可以新建的 TM"上做匹配（blocklist 中的 TM 通过 this::isBlockedTaskManager 被排除）。
+    // 第 3 步：按结果落地 —— 一是在已有 TM 上真正分配槽位，二是为满足不了的作业声明新 worker。
     private void checkResourceRequirements() {
         if (!started) {
             return;
@@ -742,6 +781,8 @@ public class FineGrainedSlotManager implements SlotManager {
         LOG.info(lines.toString());
     }
 
+    // 把策略给出的分配结果真正下发：逐个调用 slotStatusSyncer.allocateSlot()，内部经 TaskExecutorGateway
+    // 通知 TM 预留槽位（RM → TM 的跨界 RPC）。★ 只要有一个失败，就重新触发需求检查、整体重算一次。
     private void allocateSlotsAccordingTo(Map<JobID, Map<InstanceID, ResourceCounter>> result) {
         final List<CompletableFuture<Void>> allocationFutures = new ArrayList<>();
         for (Map.Entry<JobID, Map<InstanceID, ResourceCounter>> jobEntry : result.entrySet()) {
@@ -776,6 +817,8 @@ public class FineGrainedSlotManager implements SlotManager {
      * Allocate pending task managers, returns the ids of pending task managers that can not be
      * allocated.
      */
+    // 为"现有 TM 满足不了"的需求准备新 worker：这里只是把 PendingTaskManager 记进账本（并校验集群总量上限）。
+    // ★ 真正去要容器是在 declareNeededResources() 那一步统一声明，避免这里零散地反复申请。
     private Set<PendingTaskManagerId> allocateTaskManagersAccordingTo(
             List<PendingTaskManager> pendingTaskManagers) {
         Preconditions.checkState(resourceAllocator.isSupported());
@@ -845,6 +888,7 @@ public class FineGrainedSlotManager implements SlotManager {
     // Internal periodic check methods
     // ---------------------------------------------------------------------------------------------
 
+    // 周期性对账：每次都问策略"集群资源是否需要调整"，只有需要时才去声明 —— 避免定时任务无脑申请 worker。
     private void checkClusterReconciliation() {
         if (checkResourcesNeedReconcile()) {
             // only declare on needed.
@@ -852,6 +896,8 @@ public class FineGrainedSlotManager implements SlotManager {
         }
     }
 
+    // 对账内容：释放多余的 pending TM、回收空闲 TM（可配置为等它把结果分区消费完再释放）、补足需要的 TM。
+    // ★ releaseIdleTaskExecutor 只是把 TM 标记为 unwanted，真正的 stopWorker 要等下一次 declareNeededResources()。
     private boolean checkResourcesNeedReconcile() {
         ResourceReconcileResult reconcileResult =
                 resourceAllocationStrategy.tryReconcileClusterResources(taskManagerTracker);
@@ -873,6 +919,8 @@ public class FineGrainedSlotManager implements SlotManager {
         return reconcileResult.needReconcile();
     }
 
+    // ★ 二次确认才释放：先异步问 TM canBeReleased()（它可能还有结果分区没被消费完），回调里再校验
+    //   idleSince 没有变过 —— 期间只要被分配过槽位就放弃释放，避免误杀刚刚又忙起来的 TM。
     private void releaseIdleTaskExecutorIfPossible(TaskManagerInfo taskManagerInfo) {
         final long idleSince = taskManagerInfo.getIdleSince();
         taskManagerInfo

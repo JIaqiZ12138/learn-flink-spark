@@ -133,6 +133,11 @@ import static org.apache.flink.util.Preconditions.checkNotNull;
 import static org.apache.flink.util.Preconditions.checkState;
 
 /** Base class which can be used to implement {@link SchedulerNG}. */
+// ★ SchedulerBase —— 调度器的"公共骨架"：SchedulerNG 的实现被拆成两层，骨架负责一切与"决策"无关的事情：
+//   持有 ExecutionGraph、托管 OperatorCoordinator、承接 TM/REST 的状态与检查点上报、管理 cancel/close/savepoint 生命周期。
+//   子类（DefaultScheduler，以及批模式下的 AdaptiveBatchScheduler）只需实现决策部分的模板方法：
+//   startSchedulingInternal() / cancelAllPendingSlotRequestsInternal() / onTaskFinished() / onTaskFailed() 等。
+//   易误解点：slot 池（SlotPool）并不在这里，它归 JobMaster 的 SlotPoolService；调度器只拿到 slot 分配器。
 public abstract class SchedulerBase implements SchedulerNG, CheckpointScheduling {
 
     private final Logger log;
@@ -141,8 +146,10 @@ public abstract class SchedulerBase implements SchedulerNG, CheckpointScheduling
 
     protected final JobInfo jobInfo;
 
+    // ★ 作业的完整运行时状态都在这里；SchedulerBase 持有它，子类只通过下面的访问器间接读写。
     private final ExecutionGraph executionGraph;
 
+    // SchedulingTopology 是 ExecutionGraph 的"调度只读视图"：调度策略只看得到顶点/分区/region，看不到 Execution。
     private final SchedulingTopology schedulingTopology;
 
     protected final StateLocationRetriever stateLocationRetriever;
@@ -157,6 +164,8 @@ public abstract class SchedulerBase implements SchedulerNG, CheckpointScheduling
 
     protected final JobManagerJobMetricGroup jobManagerJobMetricGroup;
 
+    // ★ 顶点版本号记录器：部署/取消前先记录版本，之后只要版本变了就说明这批操作已作废。
+    //   它是"过期部署/过期重启不生效"的关键机制（另见 SchedulerBase.incrementVersionsOfAllVertices）。
     protected final ExecutionVertexVersioner executionVertexVersioner;
 
     private final KvStateHandler kvStateHandler;
@@ -165,12 +174,15 @@ public abstract class SchedulerBase implements SchedulerNG, CheckpointScheduling
 
     protected final OperatorCoordinatorHandler operatorCoordinatorHandler;
 
+    // JobMaster 的主线程 executor：所有状态变更都必须在这上面串行执行，所以下面大量出现 assertRunningInMainThread。
     private final ComponentMainThreadExecutor mainThreadExecutor;
 
     private final BoundedFIFOQueue<RootExceptionHistoryEntry> exceptionHistory;
 
     private RootExceptionHistoryEntry latestRootExceptionEntry;
 
+    // ★ ExecutionGraph 的工厂由 JobMaster 构造期注入，它内部带着 ExecutionDeploymentTracker 适配器，
+    //   用于记录"哪个 execution attempt 当前部署在哪个 TM 上"，作业恢复时据此清理 TM 上的残留实例。
     private final ExecutionGraphFactory executionGraphFactory;
 
     private final MetricOptions.JobStatusMetricsSettings jobStatusMetricsSettings;
@@ -205,6 +217,8 @@ public abstract class SchedulerBase implements SchedulerNG, CheckpointScheduling
         this.mainThreadExecutor = mainThreadExecutor;
 
         this.checkpointsCleaner = checkpointsCleaner;
+        // 检查点相关服务（已完成检查点存储、检查点 ID 计数器）只在开启检查点的作业上真正创建，
+        // SchedulerUtils 内部做判断，未开启检查点时会退化成 NoOp 实现。
         this.completedCheckpointStore =
                 SchedulerUtils.createCompletedCheckpointStoreIfCheckpointingIsEnabled(
                         jobGraph,
@@ -221,6 +235,8 @@ public abstract class SchedulerBase implements SchedulerNG, CheckpointScheduling
         this.deploymentStateTimeMetrics =
                 new DeploymentStateTimeMetrics(jobGraph.getJobType(), jobStatusMetricsSettings);
 
+        // ★ 调度器的构造期就把 ExecutionGraph 建好并恢复完毕（savepoint/checkpoint 恢复也在这里发生），
+        //   也就是说构造一结束，作业拓扑、历史执行尝试、恢复出来的状态就已经全部就绪。
         this.executionGraph =
                 createAndRestoreExecutionGraph(
                         completedCheckpointStore,
@@ -231,11 +247,13 @@ public abstract class SchedulerBase implements SchedulerNG, CheckpointScheduling
                         jobStatusListener,
                         vertexParallelismStore);
 
+        // 注意 SchedulingTopology 不是新建的，而是从 ExecutionGraph 上取到的视图，二者始终同步。
         this.schedulingTopology = executionGraph.getSchedulingTopology();
 
         stateLocationRetriever =
                 executionVertexId ->
                         getExecutionVertex(executionVertexId).getPreferredLocationBasedOnState();
+        // 这两个查询器是调度决策的输入源：前者提供本地恢复需要的状态位置，后者提供上游 TM 位置与分区位置。
         inputsLocationsRetriever =
                 new ExecutionGraphToInputsLocationsRetrieverAdapter(executionGraph);
 
@@ -243,10 +261,12 @@ public abstract class SchedulerBase implements SchedulerNG, CheckpointScheduling
         this.executionGraphHandler =
                 new ExecutionGraphHandler(executionGraph, log, ioExecutor, this.mainThreadExecutor);
 
+        // OperatorCoordinator（算子协调器）由调度器托管，这里完成创建与初始化，它的事件入口也挂在 SchedulerNG 上。
         this.operatorCoordinatorHandler =
                 new DefaultOperatorCoordinatorHandler(executionGraph, this::handleGlobalFailure);
         operatorCoordinatorHandler.initializeOperatorCoordinators(this.mainThreadExecutor);
 
+        // 异常历史用有界 FIFO 队列保存，上限由 WebOptions.MAX_EXCEPTION_HISTORY_SIZE 控制，供 Web UI 展示。
         this.exceptionHistory =
                 new BoundedFIFOQueue<>(
                         jobMasterConfiguration.get(WebOptions.MAX_EXCEPTION_HISTORY_SIZE));
@@ -254,6 +274,7 @@ public abstract class SchedulerBase implements SchedulerNG, CheckpointScheduling
         this.vertexEndOfDataListener = new VertexEndOfDataListener(executionGraph);
     }
 
+    // 关闭两个检查点服务：两次 try/catch 是为了不因第一个失败而漏掉第二个，两个异常会被合并保留。
     private void shutDownCheckpointServices(JobStatus jobStatus) {
         Exception exception = null;
 
@@ -309,6 +330,8 @@ public abstract class SchedulerBase implements SchedulerNG, CheckpointScheduling
      * @param normalizeParallelismFunc a function for normalizing vertex parallelism
      * @return the computed parallelism store
      */
+    // 并发度（parallelism）与最大并发度在这一层被规范化：用户没显式设置 maxParallelism 时按并发度推算，
+    // 并且只有【未被用户显式设置】的 maxParallelism 才允许之后被改写（见下面的 autoConfigured 开关）。
     public static VertexParallelismStore computeVertexParallelismStore(
             Iterable<JobVertex> vertices,
             Function<JobVertex, Integer> defaultMaxParallelismFunc,
@@ -368,6 +391,11 @@ public abstract class SchedulerBase implements SchedulerNG, CheckpointScheduling
         return computeVertexParallelismStore(jobGraph.getVertices());
     }
 
+    // ★ ExecutionGraph 的真正创建点。默认走 DefaultExecutionGraphFactory，它内部有三步容易忽略的动作：
+    //   ① 建出图本身（默认 DefaultExecutionGraph，可由自定义 ExecutionGraphFactory 替换）；
+    //   ② 挂上 InternalTaskFailuresListener —— ExecutionGraph 内部报出的失败会绕回调度器
+    //      （notifyTaskFailure → updateTaskExecutionState，notifyGlobalFailure → handleGlobalFailure）；
+    //   ③ registerJobStatusListener + start()，把图的状态机接到主线程 executor 上。
     private ExecutionGraph createAndRestoreExecutionGraph(
             CompletedCheckpointStore completedCheckpointStore,
             CheckpointsCleaner checkpointsCleaner,
@@ -409,6 +437,9 @@ public abstract class SchedulerBase implements SchedulerNG, CheckpointScheduling
         getExecutionVertex(executionVertexId).resetForNewExecution();
     }
 
+    // ★ failover 之后的状态恢复：流作业从最近一次检查点恢复（全局恢复恢复所有顶点，局部恢复只恢复涉及的 subtask），
+    //   批作业没有 CheckpointCoordinator，因此不恢复数据、只通知 OperatorCoordinator 重置。
+    //   注意开头会 abort 掉所有 pending 的检查点，避免旧检查点污染恢复出来的状态。
     protected void restoreState(
             final Set<ExecutionVertexID> vertices, final boolean isGlobalRecovery)
             throws Exception {
@@ -527,6 +558,8 @@ public abstract class SchedulerBase implements SchedulerNG, CheckpointScheduling
         return result;
     }
 
+    // ★ 由 ExecutionDeployer 在申请 slot 之前调用，把执行状态推进到 SCHEDULED。
+    //   注意 SCHEDULED 只表示"已进入调度流程"，此时 Task 还没下发（下发后才是 DEPLOYING/RUNNING）。
     protected void transitionToScheduled(final List<ExecutionVertexID> verticesToDeploy) {
         verticesToDeploy.forEach(
                 executionVertexId ->
@@ -545,6 +578,8 @@ public abstract class SchedulerBase implements SchedulerNG, CheckpointScheduling
         return mainThreadExecutor;
     }
 
+    // ★ 判定作业彻底失败：先推高所有顶点的版本号（让在途的部署与重启全部作废），再撤销所有 pending slot 请求，
+    //   最后让 ExecutionGraph 自己进入失败状态；收尾的归档动作是【异步】的 —— 等作业真正终止后才记录全局失败。
     protected void failJob(
             Throwable cause, long timestamp, CompletableFuture<Map<String, String>> failureLabels) {
         incrementVersionsOfAllVertices();
@@ -580,13 +615,18 @@ public abstract class SchedulerBase implements SchedulerNG, CheckpointScheduling
         return jobGraph;
     }
 
+    // 重启次数由子类提供（DefaultScheduler 从 ExecutionFailureHandler 取），用于 NUM_RESTARTS 指标。
     protected abstract long getNumberOfRestarts();
 
+    // 只有阻塞型（blocking）结果分区才需要"标记完成"：下游必须等上游整批数据写完才能消费；
+    // 而流水线型（pipelined）分区是边写边读，不存在"写完了"这个时刻。
     protected MarkPartitionFinishedStrategy getMarkPartitionFinishedStrategy() {
         // blocking partition always need mark finished.
         return ResultPartitionType::isBlockingOrBlockingPersistentResultPartition;
     }
 
+    // ★ "让所有在途部署作废"的通用手段：把每个顶点的版本号 +1，之前记录下的版本就对不上了，
+    //   ExecutionDeployer 部署前会校验版本并静默丢弃。cancel / failJob / closeAsync 都会先调它。
     private Map<ExecutionVertexID, ExecutionVertexVersion> incrementVersionsOfAllVertices() {
         return executionVertexVersioner.recordVertexModifications(
                 IterableUtils.toStream(schedulingTopology.getVertices())
@@ -594,8 +634,12 @@ public abstract class SchedulerBase implements SchedulerNG, CheckpointScheduling
                         .collect(Collectors.toSet()));
     }
 
+    // ★ slot 请求的取消被设计成抽象方法，原因是 SchedulerBase 不持有 slot 池、也不认识 ExecutionSlotAllocator，
+    //   真正的"撤单"由子类实现（DefaultScheduler 转交 executionSlotAllocator.cancel()）。
+    //   想知道 slot 请求的记账与超时判定在哪：SlotPool（由 JobMaster 的 SlotPoolService 持有）。
     protected abstract void cancelAllPendingSlotRequestsInternal();
 
+    // 状态转换只是转发给 ExecutionGraph，转换的合法性校验在 ExecutionGraph 自己的状态机里。
     protected void transitionExecutionGraphState(
             final JobStatus current, final JobStatus newState) {
         executionGraph.transitionState(current, newState);
@@ -621,6 +665,12 @@ public abstract class SchedulerBase implements SchedulerNG, CheckpointScheduling
     // SchedulerNG
     // ------------------------------------------------------------------------
 
+    // ★★ JobMaster.startScheduling() 最终落到的就是这里（SchedulerNG 的接口方法，且被声明成 final）。
+    //   骨架先把"与决策无关的准备工作"做完，再交给子类的 startSchedulingInternal()：
+    //     ① 注册作业指标（uptime / downtime / NUM_RESTARTS / 各 JobStatus 时长等）；
+    //     ② 启动所有 OperatorCoordinator —— 必须早于任何 Task 部署，否则 TM 侧发来的算子事件没有接收者；
+    //     ③ 调 startSchedulingInternal()，由子类去决策（DefaultScheduler → SchedulingStrategy）。
+    //   之所以是 final，就是为了保证"指标 + 协调器"这两步在任何调度器实现里都不会被漏掉。
     @Override
     public final void startScheduling() {
         mainThreadExecutor.assertRunningInMainThread();
@@ -636,6 +686,8 @@ public abstract class SchedulerBase implements SchedulerNG, CheckpointScheduling
         startSchedulingInternal();
     }
 
+    // 指标注册做成 static，是为了让其他调度器实现能复用同一套指标定义；
+    // NUM_RESTARTS / FULL_RESTARTS 直接读子类提供的重启计数 Gauge。
     public static void registerJobMetrics(
             MetricGroup metrics,
             JobStatusProvider jobStatusProvider,
@@ -657,8 +709,12 @@ public abstract class SchedulerBase implements SchedulerNG, CheckpointScheduling
         deploymentTimeMetrics.registerMetrics(metrics);
     }
 
+    // 决策的抽象点：由子类实现（DefaultScheduler 委托给 SchedulingStrategy，AdaptiveBatchScheduler 另有逻辑）。
     protected abstract void startSchedulingInternal();
 
+    // 关闭顺序有讲究：先让 ExecutionGraph 终止并据此关掉检查点服务（用 FutureUtils 组合成异步链），
+    // 同时推高所有顶点版本号 + 撤销所有 pending slot 请求，避免关闭过程中出现"幽灵部署"；
+    // 返回的 future 完成才算真正关闭完毕。
     @Override
     public CompletableFuture<Void> closeAsync() {
         mainThreadExecutor.assertRunningInMainThread();
@@ -683,6 +739,7 @@ public abstract class SchedulerBase implements SchedulerNG, CheckpointScheduling
         return checkpointServicesShutdownFuture;
     }
 
+    // 取消作业：与 failJob 一样，先"作废在途操作"（推版本号 + 撤 slot 请求），再让 ExecutionGraph 走取消状态机。
     @Override
     public void cancel() {
         mainThreadExecutor.assertRunningInMainThread();
@@ -720,6 +777,9 @@ public abstract class SchedulerBase implements SchedulerNG, CheckpointScheduling
         log.debug("Archive global failure.", failure);
     }
 
+    // 失败归档的关键判断：这次失败是不是"根因" ——
+    // 是根因就新建一条 RootExceptionHistoryEntry；不是根因则挂到已有根因条目下，作为并发异常记录下来。
+    // 这既是 Web UI 故障历史的数据来源，也是"一次失败引发一串连锁失败"的归并逻辑。
     protected final void archiveFromFailureHandlingResult(
             FailureHandlingResultSnapshot failureHandlingResult) {
         if (!failureHandlingResult.isRootCause()) {
@@ -756,6 +816,9 @@ public abstract class SchedulerBase implements SchedulerNG, CheckpointScheduling
         }
     }
 
+    // ★ TM 上报 Task 状态变化的入口（JobMaster 收到 RPC 后转发到这里）。注意两点：
+    //   attemptId 对应的 Execution 查不到时直接返回 false（迟到的上报被丢掉），
+    //   只有真正生效的状态变更才会触发后面的业务钩子。
     @Override
     public boolean updateTaskExecutionState(final TaskExecutionStateTransition taskExecutionState) {
 
@@ -769,6 +832,9 @@ public abstract class SchedulerBase implements SchedulerNG, CheckpointScheduling
         return false;
     }
 
+    // ★ 这里解释了"调度器为什么是事件驱动的"：只有 FINISHED / FAILED 两种状态会被转成业务钩子，
+    //   其余状态（RUNNING、CANCELED 等）只更新 ExecutionGraph 本身。
+    //   下游流水线 region 的调度、失败后的重跑，都分别从这两个分支发起。
     private void onTaskExecutionStateUpdate(
             final Execution execution, final TaskExecutionStateTransition taskExecutionState) {
 
@@ -818,6 +884,7 @@ public abstract class SchedulerBase implements SchedulerNG, CheckpointScheduling
         return exceptionHistory.toArrayList();
     }
 
+    // Web/REST 查询拿到的是【归档副本】：这里实时快照成 ArchivedExecutionGraph，避免把活的图暴露出去。
     @Override
     public ExecutionGraphInfo requestJob() {
         mainThreadExecutor.assertRunningInMainThread();
@@ -884,6 +951,8 @@ public abstract class SchedulerBase implements SchedulerNG, CheckpointScheduling
         executionGraph.updateAccumulators(accumulatorSnapshot);
     }
 
+    // 触发保存点（savepoint）：cancelJob=true 时是 cancel-with-savepoint —— 先停掉周期性检查点调度器，
+    // 万一触发失败要把它恢复回来，只有保存点成功落盘后才真正 cancel 作业。
     @Override
     public CompletableFuture<String> triggerSavepoint(
             final String targetDirectory,
@@ -1017,6 +1086,9 @@ public abstract class SchedulerBase implements SchedulerNG, CheckpointScheduling
         executionGraphHandler.reportInitializationMetrics(initializationMetrics);
     }
 
+    // ★ stop-with-savepoint（优雅停止流作业）：先停周期性检查点调度，再触发【同步】保存点，
+    //   然后等所有 Execution 终止；三件事由 StopWithSavepointTerminationManager 编排，
+    //   以保证只有同步保存点之前的数据被提交。
     @Override
     public CompletableFuture<String> stopWithSavepoint(
             @Nullable final String targetDirectory,
@@ -1089,6 +1161,8 @@ public abstract class SchedulerBase implements SchedulerNG, CheckpointScheduling
     //        are not fully usable and accessible at that point.
     // ------------------------------------------------------------------------
 
+    // ★ 跨组件透传点：TM 侧算子发来的 OperatorEvent 经 JobMaster 转到这里，再交给对应的 OperatorCoordinator。
+    //   上面那段长注释解释了"为什么算子协调器暂时由调度器托管"，属于历史包袱性的设计。
     @Override
     public void deliverOperatorEventToCoordinator(
             final ExecutionAttemptID taskExecutionId,
@@ -1108,6 +1182,9 @@ public abstract class SchedulerBase implements SchedulerNG, CheckpointScheduling
                 operator, request);
     }
 
+    // ★ 有界流的"数据结束"通知：条件是流作业 + 开启检查点 + 允许"任务结束后继续做检查点"。
+    //   若某个 JobVertex 的所有 subtask 都收到 EndOfData，就解除该顶点的 backlog 处理标记；
+    //   若全作业都结束了，再补触发一次检查点，把"数据已处理完"这个事实固化进检查点。
     @Override
     public void notifyEndOfData(ExecutionAttemptID executionAttemptID) {
         if (jobGraph.getJobType() == JobType.STREAMING

@@ -80,18 +80,25 @@ import static org.apache.flink.util.Preconditions.checkNotNull;
 import static org.apache.flink.util.Preconditions.checkState;
 
 /** The future default scheduler. */
+// ★ DefaultScheduler —— Flink 1.20 的默认调度器，回答"哪个 ExecutionVertex 在何时被部署到哪个 slot 上"。
+//   入口链：JobMaster.startScheduling() → SchedulerNG.startScheduling()（final 实现在 SchedulerBase）
+//        → startSchedulingInternal() → SchedulingStrategy → allocateSlotsAndDeploy() → ExecutionDeployer。
+//   与 AdaptiveScheduler 的差别：本类按提交时确定的并发度调度，运行期不做自适应扩缩容；AdaptiveScheduler
+//   自己实现 SchedulerNG 并带一套 Created/WaitingForResources 状态机，并不复用 SchedulerBase 这套骨架。
 public class DefaultScheduler extends SchedulerBase implements SchedulerOperations {
 
     protected final Logger log;
 
     private final ClassLoader userCodeLoader;
 
+    // ★ 逻辑 slot 分配器：背后是 PhysicalSlotProvider → SlotPool；真正的 slot 账本在 JobMaster 的 SlotPoolService 手里。
     protected final ExecutionSlotAllocator executionSlotAllocator;
 
     private final ExecutionFailureHandler executionFailureHandler;
 
     private final ScheduledExecutor delayExecutor;
 
+    // ★ 调度策略：决定"下一批该部署哪些顶点"，默认实现是 PipelinedRegionSchedulingStrategy（按流水线 region 整体调度）。
     protected final SchedulingStrategy schedulingStrategy;
 
     private final ExecutionOperations executionOperations;
@@ -107,8 +114,10 @@ public class DefaultScheduler extends SchedulerBase implements SchedulerOperatio
     // anymore. The reserved allocation information is needed for local recovery.
     private final Map<ExecutionVertexID, AllocationID> reservedAllocationByExecutionVertex;
 
+    // ★ 部署协调器：真正把 Execution 推给 TM 的一层（申请 slot、等 slot 到位、校验顶点版本后调 deploy()）。
     protected final ExecutionDeployer executionDeployer;
 
+    // 失败恢复策略：决定失败后要重跑"哪些顶点"（region failover / full failover 等），按调度拓扑创建。
     protected final FailoverStrategy failoverStrategy;
 
     protected DefaultScheduler(
@@ -139,6 +148,7 @@ public class DefaultScheduler extends SchedulerBase implements SchedulerOperatio
             final ExecutionDeployer.Factory executionDeployerFactory)
             throws Exception {
 
+        // ★ 先由 SchedulerBase 建好 ExecutionGraph / SchedulingTopology 等公共状态（图的创建与恢复就在这次 super 里）。
         super(
                 log,
                 jobGraph,
@@ -201,8 +211,10 @@ public class DefaultScheduler extends SchedulerBase implements SchedulerOperatio
                         .createInstance(new DefaultExecutionSlotAllocationContext());
 
         this.verticesWaitingForRestart = new HashSet<>();
+        // startUpAction 实际是 PhysicalSlotRequestBulkChecker.start()（见 DefaultSchedulerComponents），构造中途就启动。
         startUpAction.accept(mainThreadExecutor);
 
+        // executionDeployer 放在最后创建：它依赖上面已建好的 executionSlotAllocator 与 startReserveAllocation 回调。
         this.executionDeployer =
                 executionDeployerFactory.createInstance(
                         log,
@@ -230,6 +242,11 @@ public class DefaultScheduler extends SchedulerBase implements SchedulerOperatio
                 .forEach(ev -> cancelAllPendingSlotRequestsForVertex(ev.getId()));
     }
 
+    // ★ 调度的真正起点（由 SchedulerBase.startScheduling() 调用，那一层已注册好指标并启动了 OperatorCoordinator）。
+    //   本方法自身不含任何决策逻辑，只做两件事：① transitionToRunning() 把作业状态推到 RUNNING，
+    //   Web UI 上"作业开始运行"就是这一步；② 把"调度谁、按什么顺序"全权委托给 SchedulingStrategy。
+    //   默认策略 PipelinedRegionSchedulingStrategy 会找出源 region（没有跨 region 输入的流水线 region），
+    //   按拓扑序 scheduleRegion() → SchedulerOperations.allocateSlotsAndDeploy()，于是又回到本类。
     @Override
     protected void startSchedulingInternal() {
         log.info(
@@ -239,6 +256,8 @@ public class DefaultScheduler extends SchedulerBase implements SchedulerOperatio
         schedulingStrategy.startScheduling();
     }
 
+    // ★ 事件驱动入口：调度器没有轮询线程，"什么时候调度下一批"完全靠 TM 上报的状态变化推着走。
+    //   TM 的上报要经 SchedulerBase.updateTaskExecutionState() → onTaskExecutionStateUpdate() 过滤后才会走到这里。
     @Override
     protected void onTaskFinished(final Execution execution, final IOMetrics ioMetrics) {
         checkState(execution.getState() == ExecutionState.FINISHED);
@@ -252,9 +271,12 @@ public class DefaultScheduler extends SchedulerBase implements SchedulerOperatio
         // is done.
         stopReserveAllocation(executionVertexId);
 
+        // 通知调度策略：该顶点已完成，它下游被阻塞的 region 现在可能可以开始调度了（是否真的可调度由策略判断）。
         schedulingStrategy.onExecutionStateChange(executionVertexId, ExecutionState.FINISHED);
     }
 
+    // ★ 失败处理入口：ExecutionGraph 只负责把状态置为 FAILED 并回调这里，
+    //   "是否重启、重启哪些顶点"由本类 + FailoverStrategy + RestartBackoffTimeStrategy 共同决定。
     @Override
     protected void onTaskFailed(final Execution execution) {
         checkState(execution.getState() == ExecutionState.FAILED);
@@ -336,6 +358,8 @@ public class DefaultScheduler extends SchedulerBase implements SchedulerOperatio
         }
     }
 
+    // ★ failover 的核心路径，注意它是【异步 + 延迟】的：把失败顶点先标成"等待重启"（作业状态 RUNNING→RESTARTING），
+    //   再异步取消它们的当前执行，最后等 restartDelayMS 之后才真正重启 —— 退避是为了避免立刻重试把集群打爆。
     private void restartTasksWithDelay(final FailureHandlingResult failureHandlingResult) {
         final Set<ExecutionVertexID> verticesToRestart =
                 failureHandlingResult.getVerticesToRestart();
@@ -365,6 +389,7 @@ public class DefaultScheduler extends SchedulerBase implements SchedulerOperatio
 
         archiveFromFailureHandlingResult(
                 createFailureHandlingResultSnapshot(failureHandlingResult));
+        // 用 delayExecutor 而不是主线程 executor：退避等待期间绝不能阻塞 JobMaster 主线程。
         delayExecutor.schedule(
                 () ->
                         FutureUtils.assertNoException(
@@ -414,9 +439,11 @@ public class DefaultScheduler extends SchedulerBase implements SchedulerOperatio
             return;
         }
 
+        // 重启同样交回调度策略：状态恢复完成后，由策略决定这些顶点接下来怎么重新调度。
         schedulingStrategy.restartTasks(verticesToRestart);
     }
 
+    // ★ 取消之前必须先撤掉这些顶点的 pending slot 请求，否则刚被释放的 slot 会被这些"即将作废"的请求抢走。
     private CompletableFuture<?> cancelTasksAsync(final Set<ExecutionVertexID> verticesToRestart) {
         // clean up all the related pending requests to avoid that immediately returned slot
         // is used to fulfill the pending requests of these tasks
@@ -462,6 +489,16 @@ public class DefaultScheduler extends SchedulerBase implements SchedulerOperatio
     // SchedulerOperations
     // ------------------------------------------------------------------------
 
+    // ★★ 【调度决策 → 真正下发】的分界点。调用方是 SchedulingStrategy.scheduleRegion()，
+    //    参数是一整批要部署的顶点（同一个流水线 region 内的全部顶点）。
+    //    第 1 步：先给这批顶点记录版本号 —— 之后若发生 failover / cancel，版本变化会让这次部署
+    //           被判为"过期"而丢弃，防止迟到的部署打到新的 Execution 上。
+    //    第 2 步：把 ExecutionVertexID 换成各自的"当前 Execution"（只是取当前尝试，不新建对象）。
+    //    第 3 步：交给 ExecutionDeployer.allocateSlotsAndDeploy()，那里才是真正的三段式：
+    //            a) ExecutionSlotAllocator 申请逻辑 slot（→ PhysicalSlotProvider → SlotPool）；
+    //            b) 等所有 slot 到位 —— 这一步是【异步】的，可能要等 ResourceManager 拉起新 TM；
+    //            c) 逐个调用 Execution.deploy() → TaskManagerGateway.submitTask() 真正下发到 TM。
+    //    所以本方法只有四行，却是"决策"与"执行"两大阶段的接缝。
     @Override
     public void allocateSlotsAndDeploy(final List<ExecutionVertexID> verticesToDeploy) {
         final Map<ExecutionVertexID, ExecutionVertexVersion> requiredVersionByVertex =
@@ -509,6 +546,8 @@ public class DefaultScheduler extends SchedulerBase implements SchedulerOperatio
         notifyCoordinatorsAboutTaskFailure(execution, null);
     }
 
+    // 调度器暴露给 slot 分配层的查询上下文：顶点资源需求、上一次 allocation、输入位置、可共享的
+    // SlotSharingGroup / CoLocationGroup 等，全部实时从 ExecutionGraph / JobGraph 查，不做缓存。
     private class DefaultExecutionSlotAllocationContext implements ExecutionSlotAllocationContext {
 
         @Override

@@ -56,9 +56,20 @@ import java.util.function.Predicate;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
+// JobMaster 侧的槽位（slot）账本，SlotPool 的声明式实现 —— 对应文档链路第 3 步。
+// 调用链：ExecutionSlotAllocator → PhysicalSlotProvider → SlotPool.requestNewAllocatedSlot()
+//   → 本类 internalRequestNewAllocatedSlot() → DeclarativeSlotPool.increaseResourceRequirementsBy()
+//   → DeclarativeSlotPoolService.declareResourceRequirements()（连接管理器合并后下发）
+//   → ResourceManagerGateway.declareRequiredResources()【跨界点：JobMaster → ResourceManager】
+//   → ResourceManager 侧 declareRequiredResources() → FineGrainedSlotManager（见链路第 5 步）
+// ★ "声明式"三个字的含义：本类不逐个向 ResourceManager 伸手要槽位，只声明"本作业总共需要 N 个某规格的槽位"；
+//   等 TM 上出现空闲槽位时由 TaskExecutor 主动 offerSlots() 推过来（RM/TM → JM【推】，不是 JM 拉），
+//   再由 RequestSlotMatchingStrategy 把"需求"与"实际槽位"撮合。这样 RM 能在全局视角下做更优的分配与复用。
 /** {@link SlotPool} implementation which uses the {@link DeclarativeSlotPool} to allocate slots. */
 public class DeclarativeSlotPoolBridge extends DeclarativeSlotPoolService implements SlotPool {
 
+    // pendingRequests：还没等到槽位的请求（含 batch 请求），是"需求"的实体；fulfilledRequests：已满足的请求
+    // → 实际拿到的 AllocationID，释放槽位时靠它反查。两者互斥，同一个 slotRequestId 只会出现在其中一边。
     private final Map<SlotRequestId, PendingRequest> pendingRequests;
     private final Map<SlotRequestId, AllocationID> fulfilledRequests;
     private final Time idleSlotTimeout;
@@ -106,6 +117,8 @@ public class DeclarativeSlotPoolBridge extends DeclarativeSlotPoolService implem
     }
 
     @Override
+    // 注册"有新槽位到达"的监听：★ 槽位是被推过来的，本类只能被动等在回调里匹配，不会主动去要。
+    // 另外挂两个会自我续期的定时任务：idle 槽位回收、batch 请求超时判定；它们只负责超时，不参与匹配。
     protected void onStart(ComponentMainThreadExecutor componentMainThreadExecutor) {
         this.componentMainThreadExecutor = componentMainThreadExecutor;
 
@@ -139,6 +152,10 @@ public class DeclarativeSlotPoolBridge extends DeclarativeSlotPoolService implem
     }
 
     @Override
+    // TM 注册到 RM 之后，由 RM 指挥 TM 把空闲槽位 offer 给作业；★ 方向是 RM/TM → JM【推】，JM 从不去拉。
+    // 返回值是"被接受的 offer"，没被返回的槽位即隐含拒绝（RM 会转手给别人或回收）。
+    // isJobRestarting 分支（见 setIsJobRestarting）：作业重启期间照单全收（registerSlots 不挑规格，
+    // 内部按 ResourceProfile.ANY 记账），保证恢复时能尽快拿到槽位；平时才走 offerSlots 做规格匹配。
     public Collection<SlotOffer> offerSlots(
             TaskManagerLocation taskManagerLocation,
             TaskManagerGateway taskManagerGateway,
@@ -170,6 +187,8 @@ public class DeclarativeSlotPoolBridge extends DeclarativeSlotPoolService implem
         }
     }
 
+    // 批量失败待处理请求，并把它们占用的资源需求【减回去】—— 否则 RM 会一直以为作业还需要这些槽位。
+    // ★ 先拷贝一份再遍历：失败一个请求可能连带触发新的请求（例如 failover 重新申请），直接遍历会并发修改。
     private void cancelPendingRequests(
             Predicate<PendingRequest> requestPredicate, FlinkException cancelCause) {
 
@@ -199,6 +218,9 @@ public class DeclarativeSlotPoolBridge extends DeclarativeSlotPoolService implem
     }
 
     @VisibleForTesting
+    // 新槽位到达回调：把新槽位与待处理请求撮合（配对规则由 RequestSlotMatchingStrategy 决定）。
+    // ★ 必须分两轮：先全部 reserveFreeSlot 预留，再统一 fulfill。若边预留边 fulfill，fulfill 会同步唤起
+    //   调度器发起新请求，而那个新请求可能抢走本轮还没预留的新槽位（源码里明确点出的坑）。
     void newSlotsAreAvailable(Collection<? extends PhysicalSlot> newSlots) {
         final Collection<RequestSlotMatchingStrategy.RequestSlotMatch> requestSlotMatches =
                 requestSlotMatchingStrategy.matchRequestsAndSlots(
@@ -232,6 +254,7 @@ public class DeclarativeSlotPoolBridge extends DeclarativeSlotPoolService implem
         }
     }
 
+    // 预留成功后登记 slotRequestId → allocationId 的映射，后续 releaseSlot 全靠它才能找回槽位。
     private void reserveFreeSlot(
             SlotRequestId slotRequestId,
             AllocationID allocationId,
@@ -242,6 +265,8 @@ public class DeclarativeSlotPoolBridge extends DeclarativeSlotPoolService implem
     }
 
     @Override
+    // 复用"池中已有槽位"（而不是新建）的路径：调用方连 allocationID 都已经指定好了。
+    // ★ 用 allocationID 反查一个空闲槽位并预留（reserveFreeSlotForResource），不需要任何 RPC 往返。
     public Optional<PhysicalSlot> allocateAvailableSlot(
             @Nonnull SlotRequestId slotRequestId,
             @Nonnull AllocationID allocationID,
@@ -259,6 +284,9 @@ public class DeclarativeSlotPoolBridge extends DeclarativeSlotPoolService implem
                 reserveFreeSlotForResource(slotRequestId, allocationID, requirementProfile));
     }
 
+    // ★ 先 increaseResourceRequirementsBy 再 reserveFreeSlot，顺序有讲究：先把这份规格声明出去，
+    //   再去预留池中已存在的槽位；若该槽位当初是按另一种规格被接受的，DeclarativeSlotPool 内部会
+    //   adjustRequirements() 修正账本并更新规格映射，下次释放时才能对上账。
     private PhysicalSlot reserveFreeSlotForResource(
             SlotRequestId slotRequestId,
             AllocationID allocationId,
@@ -314,6 +342,8 @@ public class DeclarativeSlotPoolBridge extends DeclarativeSlotPoolService implem
         return internalRequestNewSlot(pendingRequest, null);
     }
 
+    // 统一入口：把需求登记进账本，然后给 future 套一个超时（超时就当作释放该请求，见 timeoutPendingSlotRequest）。
+    // ★ batch 请求传进来的 timeout 是 null，即不超时：批作业允许需求分波满足，不能因为暂时凑不齐就失败。
     private CompletableFuture<PhysicalSlot> internalRequestNewSlot(
             PendingRequest pendingRequest, @Nullable Time timeout) {
         internalRequestNewAllocatedSlot(pendingRequest);
@@ -344,6 +374,8 @@ public class DeclarativeSlotPoolBridge extends DeclarativeSlotPoolService implem
                 new TimeoutException("Pending slot request timed out in slot pool."));
     }
 
+    // ★ 声明式的核心就在这里：只做两件事 —— 记下 PendingRequest、把资源需求 +1。
+    //   全程没有"向谁要槽位"的同步 RPC，真正的下发由账本变化的回调异步完成（见类注释里的调用链）。
     private void internalRequestNewAllocatedSlot(PendingRequest pendingRequest) {
         pendingRequests.put(pendingRequest.getSlotRequestId(), pendingRequest);
 
@@ -358,6 +390,8 @@ public class DeclarativeSlotPoolBridge extends DeclarativeSlotPoolService implem
     }
 
     @Override
+    // 释放槽位要区分两种状态：请求还没被满足（从 pendingRequests 摘掉并把需求减回去），
+    // 或者已经被满足（freeReservedSlot 把槽位还回池子，并按当初满足它的规格减少需求）。
     public void releaseSlot(@Nonnull SlotRequestId slotRequestId, @Nullable Throwable cause) {
         log.debug("Release slot with slot request id {}", slotRequestId);
         assertRunningInMainThread();
@@ -392,6 +426,8 @@ public class DeclarativeSlotPoolBridge extends DeclarativeSlotPoolService implem
     }
 
     @Override
+    // RM 判定"资源凑不齐"时的回调入口（JobMaster 侧），最终会失败掉流式作业的待处理请求。
+    // ★ 只失败非 batch 请求：流式作业要求所有并发顶点同时就绪，凑不齐根本起不来，必须尽早报错而不是无限等待。
     public void notifyNotEnoughResourcesAvailable(
             Collection<ResourceRequirement> acquiredResources) {
         assertRunningInMainThread();
@@ -449,6 +485,8 @@ public class DeclarativeSlotPoolBridge extends DeclarativeSlotPoolService implem
         }
     }
 
+    // 周期性回收：把太久没被使用的空闲槽位还给 RM（releaseIdleSlots）。
+    // ★ 每次执行后都重新排一次自己 —— ComponentMainThreadExecutor.schedule 是一次性的，不会自动重复。
     private void checkIdleSlotTimeout() {
         getDeclarativeSlotPool().releaseIdleSlots(getRelativeTimeMillis());
 
@@ -460,6 +498,9 @@ public class DeclarativeSlotPoolBridge extends DeclarativeSlotPoolService implem
         }
     }
 
+    // batch 请求的特殊处理：把待处理请求按"池中是否已有匹配规格的槽位"分成可满足/不可满足两组；
+    // 不可满足的状态持续超过 batchSlotTimeout 就超时失败（避免批作业死等一个永远不来的槽位）。
+    // ★ 判定用的是"池中已有槽位"的规格集合，而不是发起新请求，符合声明式的思路。
     void checkBatchSlotTimeout() {
         assertRunningInMainThread();
 
