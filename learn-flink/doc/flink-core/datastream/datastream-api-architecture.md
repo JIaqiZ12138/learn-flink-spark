@@ -61,6 +61,8 @@
 > - **三个分叉**：① `AbstractUdfStreamOperator`（最大分支：map/flatMap/filter/process/async/join/window/sink 都从它下来）；② `SourceOperator`（FLIP-27，**不走 UDF 分支**，拉模式）；③ `runtime/operators` 下直接继承 `AbstractStreamOperator` 的 `TimestampsAndWatermarksOperator` / `SinkWriterOperator` / `CommitterOperator`。
 > - 具体算子按**输入接口**分列（`OneInputStreamOperator` 单输入 / `TwoInputStreamOperator` 双输入），类名后标注所属包（`api/operators` vs `runtime/operators`）。
 >
+> **布局约定（看图前先知道）**：父类被画成**纵向长条（spine）**，高度覆盖它所有子类，所以从它出发的每条关系线都是**一条独立的水平箭头**，不会互相压在一起 —— 这是 UML 类图里表达"一个父类 + 多个子类"的标准画法，**不是"容器包含"**。
+>
 > 而"一次算子调用从 API 层走到 TM"的五层旅程（`DataStream` → `Transformation` DAG → `StreamGraph` → `JobGraph` → `ExecutionGraph` → 运行时）见 §1.1 的文字版。
 
 ---
@@ -173,6 +175,8 @@ Function（Serializable 标记）
 ![函数接口 → 底层算子映射图](../../assets/function-operator-mapping.png)
 
 > 图源文件：[`function-operator-mapping.drawio`](../../assets/function-operator-mapping.drawio)
+>
+> **每一行是一条水平链**：`你实现的接口` →`你写的 API` → `框架产出的算子类` → `底层机制`；**加粗算子** = 主要算子（UDF 类，继承 `AbstractUdfStreamOperator`），不加粗的 = 变体 / 旧 API / 组合出来的算子。所有方框白底无填充。算子之间的**继承层次**见 [`datastream-api-architecture`](#12-算子类层次架构图抽象--实现) 那张图。
 
 | 用户写法 | 函数接口 | 运行时算子 | 关键机制 |
 |---|---|---|---|

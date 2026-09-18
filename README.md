@@ -225,7 +225,7 @@ learn-flink-spark/
 │   │   │   ├── job-scheduling-flow.drawio / .png      # 作业调度与执行总览图
 │   │   │   ├── slot-allocation-deploy-flow.drawio/.png # Slot 申请与 Task 部署时序图
 │   │   │   ├── datastream-api-architecture.drawio/.png # DataStream 算子类层次图（抽象→实现）
-│   │   │   ├── function-operator-mapping.drawio / .png # 函数接口 → 底层算子映射图
+│   │   │   ├── function-operator-mapping.drawio / .png # 函数 → API → 算子 → 机制 映射图
 │   │   │   └── source-sink-architecture.drawio / .png  # Source / Sink 抽象对照图
 │   │   ├── flink-core/              #    内核（7 主题）
 │   │   │   ├── README.md            #      组成说明 + 各文件作用 + 源码入口
