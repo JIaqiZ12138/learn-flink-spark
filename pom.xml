@@ -29,6 +29,20 @@
         <spark.version>3.5.8</spark.version>
         <scala.binary.version>2.12</scala.binary.version>
 
+        <!-- 连接器：官方外部连接器的版本号带 Flink 后缀（这里与 flink.version 配套） -->
+        <flink.connector.kafka.version>3.3.0-1.20</flink.connector.kafka.version>
+        <flink.connector.jdbc.version>3.3.0-1.20</flink.connector.jdbc.version>
+        <!--
+          flink-connector-base：FileSink/KafkaSource 等连接器的公共基类。
+          注意 flink-connector-kafka 的 pom 把它声明为 provided，不会被传递进来，
+          但 KafkaSink 的 DeliveryGuarantee 枚举就在这个 jar 里，所以必须显式声明。
+          本机 m2 只缓存到 1.20.3（无 1.20.4），此处用 1.20.3：该 jar 只被用来
+          提供 DeliveryGuarantee 等纯 API 类型，与 1.20.4 的 flink-core 兼容。
+        -->
+        <flink.connector.base.version>1.20.3</flink.connector.base.version>
+        <!-- 嵌入式数据库驱动：让 JDBC source/sink 演示无需外部 MySQL 即可真跑 -->
+        <sqlite.version>3.44.0.0</sqlite.version>
+
         <!-- 日志：Flink 走 log4j2，Spark 走 log4j2 + slf4j 2.x -->
         <log4j2.version>2.24.3</log4j2.version>
         <slf4j.version>1.7.36</slf4j.version>
@@ -74,6 +88,40 @@
                 <groupId>org.apache.flink</groupId>
                 <artifactId>flink-connector-datagen</artifactId>
                 <version>${flink.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.flink</groupId>
+                <artifactId>flink-connector-kafka</artifactId>
+                <version>${flink.connector.kafka.version}</version>
+            </dependency>
+            <!--
+              文件连接器：org.apache.flink.connector.file.sink.FileSink 在这里
+              （flink-file-sink-common 只有 bucket/rolling policy 等公共部分，没有 FileSink 本体）。
+            -->
+            <dependency>
+                <groupId>org.apache.flink</groupId>
+                <artifactId>flink-connector-files</artifactId>
+                <version>${flink.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.flink</groupId>
+                <artifactId>flink-connector-base</artifactId>
+                <version>${flink.connector.base.version}</version>
+            </dependency>
+            <!--
+              JDBC 连接器：Flink 1.20 对应 3.3.0-1.20，但本机 Maven 无外网、仓库里只有
+              3.1.1-1.17，因此【暂不纳入默认构建】，只在文档里给用法与坐标。
+              联网后取消下面注释即可用官方连接器替换自写的 JdbcSink/JdbcSource：
+            <dependency>
+                <groupId>org.apache.flink</groupId>
+                <artifactId>flink-connector-jdbc</artifactId>
+                <version>${flink.connector.jdbc.version}</version>
+            </dependency>
+            -->
+            <dependency>
+                <groupId>org.xerial</groupId>
+                <artifactId>sqlite-jdbc</artifactId>
+                <version>${sqlite.version}</version>
             </dependency>
 
             <!-- ==================== Apache Spark ==================== -->

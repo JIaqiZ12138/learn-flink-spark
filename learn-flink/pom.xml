@@ -36,6 +36,44 @@
             <artifactId>flink-connector-datagen</artifactId>
         </dependency>
 
+        <!--
+          连接器：Kafka 走官方连接器（与 Flink 1.20 配套的 3.3.0-1.20，本机 m2 已缓存）。
+          注意：没有 Kafka broker 时只做编译验证，运行需要外部集群。
+        -->
+        <dependency>
+            <groupId>org.apache.flink</groupId>
+            <artifactId>flink-connector-kafka</artifactId>
+        </dependency>
+
+        <!--
+          文件连接器：CustomSinkDemo 里演示内置 FileSink 需要它（本机 m2 已缓存 1.20.4）。
+        -->
+        <dependency>
+            <groupId>org.apache.flink</groupId>
+            <artifactId>flink-connector-files</artifactId>
+        </dependency>
+
+        <!--
+          flink-connector-base：KafkaSink 的 setDeliveryGuarantee(...) 用的是
+          org.apache.flink.connector.base.DeliveryGuarantee。flink-connector-kafka 把它
+          声明为 provided（不会传递进来），所以这里显式引入；本机 m2 缓存的是 1.20.3，
+          该 jar 在本工程里只提供 DeliveryGuarantee 这类纯 API 类型。
+        -->
+        <dependency>
+            <groupId>org.apache.flink</groupId>
+            <artifactId>flink-connector-base</artifactId>
+        </dependency>
+
+        <!--
+          SQLite 驱动：用于「自写 JDBC Source / Sink」演示。
+          选它是因为嵌入式、零部署，能让 JDBC 相关 demo 在本地真实跑通；
+          官方 flink-connector-jdbc 的用法见文档（本机无外网，未纳入构建）。
+        -->
+        <dependency>
+            <groupId>org.xerial</groupId>
+            <artifactId>sqlite-jdbc</artifactId>
+        </dependency>
+
         <!-- 日志：Flink 1.20 使用 log4j2 + slf4j 1.7 绑定 -->
         <dependency>
             <groupId>org.apache.logging.log4j</groupId>
