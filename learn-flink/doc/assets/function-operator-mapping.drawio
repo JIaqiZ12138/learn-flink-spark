@@ -1,0 +1,253 @@
+<mxfile host="Electron">
+  <diagram name="函数接口与运行时算子映射" id="ds-148">
+    <mxGraphModel dx="1600" dy="1200" grid="0" gridSize="10" guides="0" tooltips="1" connect="1" arrows="1" fold="1" page="0" pageScale="1" pageWidth="2600" pageHeight="1700" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="c-67" parent="1" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;rounded=0;fontSize=16;" value="&lt;b&gt;DataStream API：用户函数接口 ↔ 运行时算子 ↔ 底层机制&lt;/b&gt;" vertex="1">
+  <mxGeometry height="40" width="2520" x="40" y="40" as="geometry" />
+</mxCell>
+        <mxCell id="c-68" parent="1" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;rounded=0;fontSize=13;" value="&lt;b&gt;函数接口族谱&lt;/b&gt;" vertex="1">
+  <mxGeometry height="34" width="400" x="60" y="96" as="geometry" />
+</mxCell>
+        <mxCell id="c-69" parent="1" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;rounded=0;fontSize=13;" value="&lt;b&gt;API 调用&lt;/b&gt;" vertex="1">
+  <mxGeometry height="34" width="400" x="960" y="96" as="geometry" />
+</mxCell>
+        <mxCell id="c-70" parent="1" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;rounded=0;fontSize=13;" value="&lt;b&gt;运行时算子&lt;/b&gt;" vertex="1">
+  <mxGeometry height="34" width="520" x="1720" y="96" as="geometry" />
+</mxCell>
+        <mxCell id="c-71" parent="1" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;rounded=0;fontSize=13;" value="&lt;b&gt;关键机制&lt;/b&gt;" vertex="1">
+  <mxGeometry height="34" width="400" x="2280" y="96" as="geometry" />
+</mxCell>
+        <mxCell id="c-72" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontSize=10;fillColor=#dae8fc;strokeColor=#6c8ebf;" value="Function / Serializable（根）" vertex="1">
+  <mxGeometry height="62" width="400" x="60" y="150" as="geometry" />
+</mxCell>
+        <mxCell id="c-73" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontSize=10;fillColor=#f5f5f5;strokeColor=#666666;" value="—" vertex="1">
+  <mxGeometry height="62" width="400" x="960" y="150" as="geometry" />
+</mxCell>
+        <mxCell id="c-74" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontSize=10;fillColor=#ffe6cc;strokeColor=#d79b00;" value="—" vertex="1">
+  <mxGeometry height="62" width="520" x="1720" y="150" as="geometry" />
+</mxCell>
+        <mxCell id="c-75" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontSize=10;fillColor=#ffffff;strokeColor=#666666;" value="算子侧靠 instanceof 分派" vertex="1">
+  <mxGeometry height="62" width="280" x="2280" y="150" as="geometry" />
+</mxCell>
+        <mxCell id="c-76" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontSize=10;fillColor=#dae8fc;strokeColor=#6c8ebf;" value="MapFunction" vertex="1">
+  <mxGeometry height="62" width="400" x="60" y="228" as="geometry" />
+</mxCell>
+        <mxCell id="c-77" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontSize=10;fillColor=#f5f5f5;strokeColor=#666666;" value=".map(f)" vertex="1">
+  <mxGeometry height="62" width="400" x="960" y="228" as="geometry" />
+</mxCell>
+        <mxCell id="c-78" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontSize=10;fillColor=#ffe6cc;strokeColor=#d79b00;" value="StreamMap" vertex="1">
+  <mxGeometry height="62" width="520" x="1720" y="228" as="geometry" />
+</mxCell>
+        <mxCell id="c-79" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontSize=10;fillColor=#ffffff;strokeColor=#666666;" value="1:1，Collector" vertex="1">
+  <mxGeometry height="62" width="280" x="2280" y="228" as="geometry" />
+</mxCell>
+        <mxCell id="c-80" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontSize=10;fillColor=#dae8fc;strokeColor=#6c8ebf;" value="FlatMapFunction" vertex="1">
+  <mxGeometry height="62" width="400" x="60" y="306" as="geometry" />
+</mxCell>
+        <mxCell id="c-81" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontSize=10;fillColor=#f5f5f5;strokeColor=#666666;" value=".flatMap(f)" vertex="1">
+  <mxGeometry height="62" width="400" x="960" y="306" as="geometry" />
+</mxCell>
+        <mxCell id="c-82" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontSize=10;fillColor=#ffe6cc;strokeColor=#d79b00;" value="StreamFlatMap" vertex="1">
+  <mxGeometry height="62" width="520" x="1720" y="306" as="geometry" />
+</mxCell>
+        <mxCell id="c-83" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontSize=10;fillColor=#ffffff;strokeColor=#666666;" value="1:N，可能不发射" vertex="1">
+  <mxGeometry height="62" width="280" x="2280" y="306" as="geometry" />
+</mxCell>
+        <mxCell id="c-84" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontSize=10;fillColor=#dae8fc;strokeColor=#6c8ebf;" value="FilterFunction" vertex="1">
+  <mxGeometry height="62" width="400" x="60" y="384" as="geometry" />
+</mxCell>
+        <mxCell id="c-85" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontSize=10;fillColor=#f5f5f5;strokeColor=#666666;" value=".filter(f)" vertex="1">
+  <mxGeometry height="62" width="400" x="960" y="384" as="geometry" />
+</mxCell>
+        <mxCell id="c-86" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontSize=10;fillColor=#ffe6cc;strokeColor=#d79b00;" value="StreamFilter" vertex="1">
+  <mxGeometry height="62" width="520" x="1720" y="384" as="geometry" />
+</mxCell>
+        <mxCell id="c-87" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontSize=10;fillColor=#ffffff;strokeColor=#666666;" value="0/1" vertex="1">
+  <mxGeometry height="62" width="280" x="2280" y="384" as="geometry" />
+</mxCell>
+        <mxCell id="c-88" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontSize=10;fillColor=#f8cecc;strokeColor=#b85450;" value="RichFunction → AbstractRichFunction" vertex="1">
+  <mxGeometry height="62" width="400" x="60" y="462" as="geometry" />
+</mxCell>
+        <mxCell id="c-89" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontSize=10;fillColor=#f5f5f5;strokeColor=#666666;" value="任意 Rich* 版本" vertex="1">
+  <mxGeometry height="62" width="400" x="960" y="462" as="geometry" />
+</mxCell>
+        <mxCell id="c-90" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontSize=10;fillColor=#ffe6cc;strokeColor=#d79b00;" value="（同各算子）" vertex="1">
+  <mxGeometry height="62" width="520" x="1720" y="462" as="geometry" />
+</mxCell>
+        <mxCell id="c-91" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontSize=10;fillColor=#ffffff;strokeColor=#666666;" value="open/close/resetRuntimeContext" vertex="1">
+  <mxGeometry height="62" width="280" x="2280" y="462" as="geometry" />
+</mxCell>
+        <mxCell id="c-92" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontSize=10;fillColor=#f8cecc;strokeColor=#b85450;" value="ProcessFunction" vertex="1">
+  <mxGeometry height="62" width="400" x="60" y="540" as="geometry" />
+</mxCell>
+        <mxCell id="c-93" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontSize=10;fillColor=#f5f5f5;strokeColor=#666666;" value=".process(f)" vertex="1">
+  <mxGeometry height="62" width="400" x="960" y="540" as="geometry" />
+</mxCell>
+        <mxCell id="c-94" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontSize=10;fillColor=#ffe6cc;strokeColor=#d79b00;" value="ProcessOperator" vertex="1">
+  <mxGeometry height="62" width="520" x="1720" y="540" as="geometry" />
+</mxCell>
+        <mxCell id="c-95" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontSize=10;fillColor=#ffffff;strokeColor=#666666;" value="侧输出 + 处理时间定时器" vertex="1">
+  <mxGeometry height="62" width="280" x="2280" y="540" as="geometry" />
+</mxCell>
+        <mxCell id="c-96" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontSize=10;fillColor=#f8cecc;strokeColor=#b85450;" value="KeyedProcessFunction" vertex="1">
+  <mxGeometry height="62" width="400" x="60" y="618" as="geometry" />
+</mxCell>
+        <mxCell id="c-97" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontSize=10;fillColor=#f5f5f5;strokeColor=#666666;" value=".keyBy(k).process(f)" vertex="1">
+  <mxGeometry height="62" width="400" x="960" y="618" as="geometry" />
+</mxCell>
+        <mxCell id="c-98" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontSize=10;fillColor=#ffe6cc;strokeColor=#d79b00;" value="KeyedProcessOperator" vertex="1">
+  <mxGeometry height="62" width="520" x="1720" y="618" as="geometry" />
+</mxCell>
+        <mxCell id="c-99" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontSize=10;fillColor=#ffffff;strokeColor=#666666;" value="keyed state + 事件时间定时器" vertex="1">
+  <mxGeometry height="62" width="280" x="2280" y="618" as="geometry" />
+</mxCell>
+        <mxCell id="c-100" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontSize=10;fillColor=#f8cecc;strokeColor=#b85450;" value="CoProcessFunction / KeyedCoProcessFunction" vertex="1">
+  <mxGeometry height="62" width="400" x="60" y="696" as="geometry" />
+</mxCell>
+        <mxCell id="c-101" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontSize=10;fillColor=#f5f5f5;strokeColor=#666666;" value=".connect(s).process(f)" vertex="1">
+  <mxGeometry height="62" width="400" x="960" y="696" as="geometry" />
+</mxCell>
+        <mxCell id="c-102" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontSize=10;fillColor=#ffe6cc;strokeColor=#d79b00;" value="CoProcessOperator / KeyedCoProcessOperator" vertex="1">
+  <mxGeometry height="62" width="520" x="1720" y="696" as="geometry" />
+</mxCell>
+        <mxCell id="c-103" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontSize=10;fillColor=#ffffff;strokeColor=#666666;" value="双输入" vertex="1">
+  <mxGeometry height="62" width="280" x="2280" y="696" as="geometry" />
+</mxCell>
+        <mxCell id="c-104" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontSize=10;fillColor=#f8cecc;strokeColor=#b85450;" value="BroadcastProcessFunction / Keyed" vertex="1">
+  <mxGeometry height="62" width="400" x="60" y="774" as="geometry" />
+</mxCell>
+        <mxCell id="c-105" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontSize=10;fillColor=#f5f5f5;strokeColor=#666666;" value=".broadcast(d).connect().process(f)" vertex="1">
+  <mxGeometry height="62" width="400" x="960" y="774" as="geometry" />
+</mxCell>
+        <mxCell id="c-106" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontSize=10;fillColor=#ffe6cc;strokeColor=#d79b00;" value="CoBroadcastWithNonKeyed / WithKeyedOperator" vertex="1">
+  <mxGeometry height="62" width="520" x="1720" y="774" as="geometry" />
+</mxCell>
+        <mxCell id="c-107" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontSize=10;fillColor=#ffffff;strokeColor=#666666;" value="广播状态（各实例一致）" vertex="1">
+  <mxGeometry height="62" width="280" x="2280" y="774" as="geometry" />
+</mxCell>
+        <mxCell id="c-108" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontSize=10;fillColor=#dae8fc;strokeColor=#6c8ebf;" value="WindowFunction / AllWindowFunction" vertex="1">
+  <mxGeometry height="62" width="400" x="60" y="852" as="geometry" />
+</mxCell>
+        <mxCell id="c-109" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontSize=10;fillColor=#f5f5f5;strokeColor=#666666;" value=".window/.windowAll(...).apply(f)" vertex="1">
+  <mxGeometry height="62" width="400" x="960" y="852" as="geometry" />
+</mxCell>
+        <mxCell id="c-110" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontSize=10;fillColor=#ffe6cc;strokeColor=#d79b00;" value="WindowOperator" vertex="1">
+  <mxGeometry height="62" width="520" x="1720" y="852" as="geometry" />
+</mxCell>
+        <mxCell id="c-111" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontSize=10;fillColor=#ffffff;strokeColor=#666666;" value="全量缓存（ListState）" vertex="1">
+  <mxGeometry height="62" width="280" x="2280" y="852" as="geometry" />
+</mxCell>
+        <mxCell id="c-112" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontSize=10;fillColor=#f8cecc;strokeColor=#b85450;" value="ProcessWindowFunction / ProcessAllWindow" vertex="1">
+  <mxGeometry height="62" width="400" x="60" y="930" as="geometry" />
+</mxCell>
+        <mxCell id="c-113" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontSize=10;fillColor=#f5f5f5;strokeColor=#666666;" value=".window(...).process(f)" vertex="1">
+  <mxGeometry height="62" width="400" x="960" y="930" as="geometry" />
+</mxCell>
+        <mxCell id="c-114" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontSize=10;fillColor=#ffe6cc;strokeColor=#d79b00;" value="WindowOperator" vertex="1">
+  <mxGeometry height="62" width="520" x="1720" y="930" as="geometry" />
+</mxCell>
+        <mxCell id="c-115" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontSize=10;fillColor=#ffffff;strokeColor=#666666;" value="窗口元信息 + RichFunction" vertex="1">
+  <mxGeometry height="62" width="280" x="2280" y="930" as="geometry" />
+</mxCell>
+        <mxCell id="c-116" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontSize=10;fillColor=#dae8fc;strokeColor=#6c8ebf;" value="ReduceFunction / AggregateFunction" vertex="1">
+  <mxGeometry height="62" width="400" x="60" y="1008" as="geometry" />
+</mxCell>
+        <mxCell id="c-117" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontSize=10;fillColor=#f5f5f5;strokeColor=#666666;" value=".reduce / .aggregate" vertex="1">
+  <mxGeometry height="62" width="400" x="960" y="1008" as="geometry" />
+</mxCell>
+        <mxCell id="c-118" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontSize=10;fillColor=#ffe6cc;strokeColor=#d79b00;" value="WindowOperator（增量）" vertex="1">
+  <mxGeometry height="62" width="520" x="1720" y="1008" as="geometry" />
+</mxCell>
+        <mxCell id="c-119" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontSize=10;fillColor=#ffffff;strokeColor=#666666;" value="ReducingState / AggregatingState" vertex="1">
+  <mxGeometry height="62" width="280" x="2280" y="1008" as="geometry" />
+</mxCell>
+        <mxCell id="c-120" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontSize=10;fillColor=#f8cecc;strokeColor=#b85450;" value="AsyncFunction / RichAsyncFunction" vertex="1">
+  <mxGeometry height="62" width="400" x="60" y="1086" as="geometry" />
+</mxCell>
+        <mxCell id="c-121" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontSize=10;fillColor=#f5f5f5;strokeColor=#666666;" value="AsyncDataStream.orderedWait/unorderedWait" vertex="1">
+  <mxGeometry height="62" width="400" x="960" y="1086" as="geometry" />
+</mxCell>
+        <mxCell id="c-122" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontSize=10;fillColor=#ffe6cc;strokeColor=#d79b00;" value="AsyncWaitOperator" vertex="1">
+  <mxGeometry height="62" width="520" x="1720" y="1086" as="geometry" />
+</mxCell>
+        <mxCell id="c-123" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontSize=10;fillColor=#ffffff;strokeColor=#666666;" value="队列 + mailbox + 恢复重放" vertex="1">
+  <mxGeometry height="62" width="280" x="2280" y="1086" as="geometry" />
+</mxCell>
+        <mxCell id="c-124" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontSize=10;fillColor=#dae8fc;strokeColor=#6c8ebf;" value="JoinFunction / FlatJoinFunction" vertex="1">
+  <mxGeometry height="62" width="400" x="60" y="1164" as="geometry" />
+</mxCell>
+        <mxCell id="c-125" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontSize=10;fillColor=#f5f5f5;strokeColor=#666666;" value=".join(...).apply(f)" vertex="1">
+  <mxGeometry height="62" width="400" x="960" y="1164" as="geometry" />
+</mxCell>
+        <mxCell id="c-126" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontSize=10;fillColor=#ffe6cc;strokeColor=#d79b00;" value="WindowOperator（由 coGroup 改写）" vertex="1">
+  <mxGeometry height="62" width="520" x="1720" y="1164" as="geometry" />
+</mxCell>
+        <mxCell id="c-127" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontSize=10;fillColor=#ffffff;strokeColor=#666666;" value="双重循环 = inner join" vertex="1">
+  <mxGeometry height="62" width="280" x="2280" y="1164" as="geometry" />
+</mxCell>
+        <mxCell id="c-128" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontSize=10;fillColor=#dae8fc;strokeColor=#6c8ebf;" value="CoGroupFunction" vertex="1">
+  <mxGeometry height="62" width="400" x="60" y="1242" as="geometry" />
+</mxCell>
+        <mxCell id="c-129" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontSize=10;fillColor=#f5f5f5;strokeColor=#666666;" value=".coGroup(...).apply(f)" vertex="1">
+  <mxGeometry height="62" width="400" x="960" y="1242" as="geometry" />
+</mxCell>
+        <mxCell id="c-130" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontSize=10;fillColor=#ffe6cc;strokeColor=#d79b00;" value="WindowOperator" vertex="1">
+  <mxGeometry height="62" width="520" x="1720" y="1242" as="geometry" />
+</mxCell>
+        <mxCell id="c-131" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontSize=10;fillColor=#ffffff;strokeColor=#666666;" value="union + TaggedUnion" vertex="1">
+  <mxGeometry height="62" width="280" x="2280" y="1242" as="geometry" />
+</mxCell>
+        <mxCell id="c-132" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontSize=10;fillColor=#f8cecc;strokeColor=#b85450;" value="ProcessJoinFunction" vertex="1">
+  <mxGeometry height="62" width="400" x="60" y="1320" as="geometry" />
+</mxCell>
+        <mxCell id="c-133" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontSize=10;fillColor=#f5f5f5;strokeColor=#666666;" value=".intervalJoin(...).process(f)" vertex="1">
+  <mxGeometry height="62" width="400" x="960" y="1320" as="geometry" />
+</mxCell>
+        <mxCell id="c-134" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontSize=10;fillColor=#ffe6cc;strokeColor=#d79b00;" value="IntervalJoinOperator" vertex="1">
+  <mxGeometry height="62" width="520" x="1720" y="1320" as="geometry" />
+</mxCell>
+        <mxCell id="c-135" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontSize=10;fillColor=#ffffff;strokeColor=#666666;" value="两个 MapState + 清理 timer" vertex="1">
+  <mxGeometry height="62" width="280" x="2280" y="1320" as="geometry" />
+</mxCell>
+        <mxCell id="c-136" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontSize=10;fillColor=#dae8fc;strokeColor=#6c8ebf;" value="Source（FLIP-27）/ SourceFunction" vertex="1">
+  <mxGeometry height="62" width="400" x="60" y="1398" as="geometry" />
+</mxCell>
+        <mxCell id="c-137" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontSize=10;fillColor=#f5f5f5;strokeColor=#666666;" value="env.fromSource / env.addSource" vertex="1">
+  <mxGeometry height="62" width="400" x="960" y="1398" as="geometry" />
+</mxCell>
+        <mxCell id="c-138" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontSize=10;fillColor=#ffe6cc;strokeColor=#d79b00;" value="SourceOperator / StreamSource" vertex="1">
+  <mxGeometry height="62" width="520" x="1720" y="1398" as="geometry" />
+</mxCell>
+        <mxCell id="c-139" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontSize=10;fillColor=#ffffff;strokeColor=#666666;" value="pull（mailbox）/ 独立线程" vertex="1">
+  <mxGeometry height="62" width="280" x="2280" y="1398" as="geometry" />
+</mxCell>
+        <mxCell id="c-140" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontSize=10;fillColor=#dae8fc;strokeColor=#6c8ebf;" value="Sink / SinkWriter / Committer" vertex="1">
+  <mxGeometry height="62" width="400" x="60" y="1476" as="geometry" />
+</mxCell>
+        <mxCell id="c-141" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontSize=10;fillColor=#f5f5f5;strokeColor=#666666;" value=".sinkTo(sink)" vertex="1">
+  <mxGeometry height="62" width="400" x="960" y="1476" as="geometry" />
+</mxCell>
+        <mxCell id="c-142" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontSize=10;fillColor=#ffe6cc;strokeColor=#d79b00;" value="SinkWriterOperator + CommitterOperator" vertex="1">
+  <mxGeometry height="62" width="520" x="1720" y="1476" as="geometry" />
+</mxCell>
+        <mxCell id="c-143" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontSize=10;fillColor=#ffffff;strokeColor=#666666;" value="两阶段提交" vertex="1">
+  <mxGeometry height="62" width="280" x="2280" y="1476" as="geometry" />
+</mxCell>
+        <mxCell id="c-144" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontSize=10;fillColor=#f8cecc;strokeColor=#b85450;" value="SinkFunction / RichSinkFunction" vertex="1">
+  <mxGeometry height="62" width="400" x="60" y="1554" as="geometry" />
+</mxCell>
+        <mxCell id="c-145" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontSize=10;fillColor=#f5f5f5;strokeColor=#666666;" value=".addSink(f) / .print()" vertex="1">
+  <mxGeometry height="62" width="400" x="960" y="1554" as="geometry" />
+</mxCell>
+        <mxCell id="c-146" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontSize=10;fillColor=#ffe6cc;strokeColor=#d79b00;" value="StreamSink" vertex="1">
+  <mxGeometry height="62" width="520" x="1720" y="1554" as="geometry" />
+</mxCell>
+        <mxCell id="c-147" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontSize=10;fillColor=#ffffff;strokeColor=#666666;" value="总被链化" vertex="1">
+  <mxGeometry height="62" width="280" x="2280" y="1554" as="geometry" />
+</mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

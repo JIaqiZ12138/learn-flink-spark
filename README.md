@@ -89,7 +89,7 @@ graph TD
 
 | 分层 | 主题 |
 |---|---|
-| **[`flink-core/`](./learn-flink/doc/flink-core/)** | 任务提交 ✅ · 作业调度 · 内存管理 · 组件通信 · 处理函数 · 窗口和水位线 · 状态与容错 · FlinkSQL |
+| **[`flink-core/`](./learn-flink/doc/flink-core/)** | 任务提交 ✅ · 作业调度 ✅ · DataStream 算子 ✅ · 内存管理 · 组件通信 · 窗口和水位线 · 状态与容错 · FlinkSQL |
 | **[`flink-sql/`](./learn-flink/doc/flink-sql/)** | SQL 解析 · SQL 优化器 · Join 算子 · 外部集成 |
 | **[`flink-cdc/`](./learn-flink/doc/flink-cdc/)** | 架构总览 · 增量快照算法 · Source 实现 · Schema 演进 · 断点续传与容错 · 整库同步 |
 | **[`flink-agent/`](./learn-flink/doc/flink-agent/)** | 架构总览 · 执行环境 · LLM 接入 · 工具调用 · 记忆与状态 |
@@ -103,7 +103,7 @@ graph TD
 | flink-core | 作业调度 | `DefaultScheduler`、`PipelinedRegionSchedulingStrategy`、`SlotPool` |
 | flink-core | 内存管理 | `MemoryManager`、`NetworkBufferPool`、`TaskManagerMemorySpec` |
 | flink-core | 组件通信 | `flink-rpc`（`RpcEndpoint` / `RpcGateway` / Pekko 实现） |
-| flink-core | 处理函数 | `StreamOperator`、`OperatorChain`、`OneInputStreamTask` |
+| flink-core | DataStream 算子 | `DataStream`、`StreamOperator`、`StreamGraphGenerator`、`StreamingJobGraphGenerator` |
 | flink-core | 窗口和水位线 | `WindowOperator`、`WindowAssigner`、`WatermarkOutput` |
 | flink-core | 状态与容错 | `KeyedStateBackend`、`CheckpointCoordinator`、`StateBackendLoader` |
 | flink-core | FlinkSQL | `TableEnvironmentImpl`、`StreamGraph` 衔接、`flink-table-runtime` |
@@ -132,17 +132,17 @@ graph TD
 | 包 | 内容 | 对应笔记 | 状态 |
 |---|---|---|---|
 | `sample/` | 快速开始：最小可运行作业 | `flink-core/job-submit` | ✅ 已实现 |
-| `operators/` | 基础算子 | `flink-core/functions` | ⬜ |
-| `process/` | ProcessFunction：定时器、侧输出流 | `flink-core/functions` | ⬜ |
-| `window/` | WindowFunction | `flink-core/window-watermark` | ⬜ |
+| `operators/` | 基础算子（map / flatMap / filter） | `flink-core/datastream` | ✅ 已实现 |
+| `process/` | ProcessFunction：定时器、侧输出流、广播状态 | `flink-core/datastream` | ✅ 已实现 |
+| `window/` | WindowFunction / 窗口分配器 / 增量聚合 | `flink-core/datastream` | ✅ 已实现 |
 | `watermark/` | WaterMark 与事件时间 | `flink-core/window-watermark` | ⬜ |
 | `state/` | State：Keyed / Operator State、TTL | `flink-core/state-fault-tolerance` | ⬜ |
 | `checkpoint/` | CheckPoint 与 Savepoint | `flink-core/state-fault-tolerance` | ⬜ |
-| `keyed/` | KeyedFunction | `flink-core/functions` | ⬜ |
-| `partitioner/` | Partitioner 与重分区 | `flink-core/scheduling` | ⬜ |
-| `rich/` | RichFunction 生命周期 | `flink-core/functions` | ⬜ |
-| `async/` | AsyncFunction 异步 IO | `flink-core/functions` | ⬜ |
-| `join/` | 双流 Join | `flink-sql/join` | ⬜ |
+| `keyed/` | KeyedFunction 与 KeyGroup | `flink-core/datastream` | ✅ 已实现 |
+| `partitioner/` | Partitioner 与重分区 | `flink-core/datastream` | ✅ 已实现 |
+| `rich/` | RichFunction 生命周期 | `flink-core/datastream` | ✅ 已实现 |
+| `async/` | AsyncFunction 异步 IO | `flink-core/datastream` | ✅ 已实现 |
+| `join/` | 双流 Join（window join / coGroup / interval join） | `flink-core/datastream` | ✅ 已实现 |
 | `cdc/` | Flink CDC 接入 | `flink-cdc/architecture` | ⬜ |
 | `sql/` | Flink SQL 实战 | `flink-sql/optimizer` | ⬜ |
 | `agent/` | Flink Agent 实战 | `flink-agent/architecture` | ⬜ |
@@ -221,7 +221,12 @@ learn-flink-spark/
 │   │   ├── README.md                #    笔记总索引
 │   │   ├── assets/                  #    ── 图仓库：所有 drawio 源文件 + PNG 导出 ──
 │   │   │   ├── job-submission-flow.drawio / .png      # 任务提交全流程图
-│   │   │   └── three-graphs-comparison.drawio / .png  # 三张图并排对照
+│   │   │   ├── three-graphs-comparison.drawio / .png  # 三张图并排对照
+│   │   │   ├── job-scheduling-flow.drawio / .png      # 作业调度与执行总览图
+│   │   │   ├── slot-allocation-deploy-flow.drawio/.png # Slot 申请与 Task 部署时序图
+│   │   │   ├── datastream-api-architecture.drawio/.png # DataStream API 五层架构图
+│   │   │   ├── function-operator-mapping.drawio / .png # 函数接口 → 底层算子映射图
+│   │   │   └── source-sink-architecture.drawio / .png  # Source / Sink 抽象对照图
 │   │   ├── flink-core/              #    内核（7 主题）
 │   │   │   ├── README.md            #      组成说明 + 各文件作用 + 源码入口
 │   │   │   ├── job-submit/          #      ✅ 任务提交（已完成，只放 .md）
@@ -231,7 +236,7 @@ learn-flink-spark/
 │   │   │   ├── scheduling/          #      ✅ 作业调度 + Slot 分配 + failover（已完成）
 │   │   │   ├── memory/              #      内存管理
 │   │   │   ├── rpc/                 #      组件通信
-│   │   │   ├── functions/           #      处理函数
+│   │   │   ├── datastream/          #      ✅ DataStream 算子 + 连接器（已完成）
 │   │   │   ├── window-watermark/    #      窗口和水位线
 │   │   │   └── state-fault-tolerance/ #    状态与容错
 │   │   ├── flink-sql/               #    SQL 层（4 主题）
@@ -487,6 +492,7 @@ mvn -pl learn-flink -am clean compile # 连同父 POM 一起构建
 |---|---|
 | **Flink 任务提交全流程**（per-job 为主线，端到端） | [`learn-flink/doc/flink-core/job-submit/`](./learn-flink/doc/flink-core/job-submit/) |
 | **Flink 作业调度与执行全流程**（DefaultScheduler / Slot 分配 / TaskExecutor） | [`learn-flink/doc/flink-core/scheduling/`](./learn-flink/doc/flink-core/scheduling/) |
+| **Flink DataStream API 算子全解**（Source/Operator/Sink + 22 个可运行 demo） | [`learn-flink/doc/flink-core/datastream/`](./learn-flink/doc/flink-core/datastream/) |
 | Flink 最小可运行作业 | `learn-flink/src/main/java/com/jiaqiz/flink/sample/WordCountJob.java` |
 | Spark RDD + SQL 最小可运行作业 | `learn-spark/src/main/java/com/jiaqiz/spark/sample/WordCountApp.java` |
 
@@ -498,7 +504,7 @@ mvn -pl learn-flink -am clean compile # 连同父 POM 一起构建
 - [x] `flink-core/scheduling` —— 作业调度（ExecutionGraph、Slot 分配、failover）
 - [ ] `flink-core/rpc` —— 组件通信（JobManager / TaskManager 之间怎么说话）
 - [ ] `flink-core/memory` —— 内存管理（托管内存与网络缓冲）
-- [ ] `flink-core/functions` —— 处理函数（StreamOperator 与算子链）
+- [x] `flink-core/datastream` —— DataStream 算子（StreamOperator、算子链、函数族谱、Source/Sink、连接器）
 - [ ] `flink-core/window-watermark` —— 窗口和水位线
 - [ ] `flink-core/state-fault-tolerance` —— 状态与容错（Checkpoint / Savepoint）
 - [ ] `flink-core/sql` —— FlinkSQL 与 DataStream 的衔接

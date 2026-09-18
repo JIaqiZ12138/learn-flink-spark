@@ -1,0 +1,205 @@
+<mxfile host="Electron">
+  <diagram name="DataStream API 总体架构" id="ds-66">
+    <mxGraphModel dx="1600" dy="1200" grid="0" gridSize="10" guides="0" tooltips="1" connect="1" arrows="1" fold="1" page="0" pageScale="1" pageWidth="2500" pageHeight="2000" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="c-1" parent="1" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;rounded=0;fontSize=16;" value="&lt;b&gt;DataStream API 一次算子调用的完整旅程（客户端 → AM → TM）&lt;/b&gt;" vertex="1">
+  <mxGeometry height="40" width="1980" x="40" y="40" as="geometry" />
+</mxCell>
+        <mxCell id="c-2" parent="1" style="rounded=1;whiteSpace=wrap;html=1;opacity=40;fontSize=11;fillColor=#dae8fc;strokeColor=#6c8ebf;" value="" vertex="1">
+  <mxGeometry height="200" width="1980" x="40" y="100" as="geometry" />
+</mxCell>
+        <mxCell id="c-3" parent="1" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;rounded=0;fontSize=13;" value="&lt;b&gt;① API 层（客户端 JVM）：只是“图的句柄”&lt;/b&gt;" vertex="1">
+  <mxGeometry height="30" width="600" x="56" y="104" as="geometry" />
+</mxCell>
+        <mxCell id="c-4" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontSize=10;fillColor=#dae8fc;strokeColor=#6c8ebf;" value="DataStream&lt;br/&gt;(普通流)" vertex="1">
+  <mxGeometry height="70" width="300" x="70" y="150" as="geometry" />
+</mxCell>
+        <mxCell id="c-5" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontSize=10;fillColor=#dae8fc;strokeColor=#6c8ebf;" value="SingleOutputStreamOperator&lt;br/&gt;(有算子，能读侧输出)" vertex="1">
+  <mxGeometry height="70" width="300" x="395" y="150" as="geometry" />
+</mxCell>
+        <mxCell id="c-6" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontSize=10;fillColor=#dae8fc;strokeColor=#6c8ebf;" value="KeyedStream&lt;br/&gt;keyBy 之后" vertex="1">
+  <mxGeometry height="70" width="300" x="720" y="150" as="geometry" />
+</mxCell>
+        <mxCell id="c-7" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontSize=10;fillColor=#dae8fc;strokeColor=#6c8ebf;" value="WindowedStream / AllWindowedStream&lt;br/&gt;window / windowAll" vertex="1">
+  <mxGeometry height="70" width="300" x="1045" y="150" as="geometry" />
+</mxCell>
+        <mxCell id="c-8" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontSize=10;fillColor=#dae8fc;strokeColor=#6c8ebf;" value="ConnectedStreams&lt;br/&gt;connect 之后" vertex="1">
+  <mxGeometry height="70" width="300" x="1370" y="150" as="geometry" />
+</mxCell>
+        <mxCell id="c-9" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontSize=10;fillColor=#dae8fc;strokeColor=#6c8ebf;" value="JoinedStreams / CoGroupedStreams / BroadcastConnectedStream" vertex="1">
+  <mxGeometry height="70" width="300" x="1695" y="150" as="geometry" />
+</mxCell>
+        <mxCell id="c-10" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontSize=11;fillColor=#ffffff;strokeColor=#6c8ebf;" value="每次调用 → 注册一个 &lt;b&gt;Transformation&lt;/b&gt;；此时&lt;b&gt;没有数据流动、没有算子实例&lt;/b&gt;（算子实例是 TM 侧才创建）" vertex="1">
+  <mxGeometry height="56" width="1930" x="70" y="230" as="geometry" />
+</mxCell>
+        <mxCell id="c-11" parent="1" style="rounded=1;whiteSpace=wrap;html=1;opacity=40;fontSize=11;fillColor=#e1d5e7;strokeColor=#9673a6;" value="" vertex="1">
+  <mxGeometry height="150" width="1980" x="40" y="320" as="geometry" />
+</mxCell>
+        <mxCell id="c-12" parent="1" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;rounded=0;fontSize=13;" value="&lt;b&gt;② 逻辑图 Transformation DAG（客户端）&lt;/b&gt;" vertex="1">
+  <mxGeometry height="30" width="600" x="56" y="324" as="geometry" />
+</mxCell>
+        <mxCell id="c-13" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontSize=10;fillColor=#e1d5e7;strokeColor=#9673a6;" value="OneInputTransformation&lt;br/&gt;map/flatMap/filter/process" vertex="1">
+  <mxGeometry height="70" width="360" x="70" y="366" as="geometry" />
+</mxCell>
+        <mxCell id="c-14" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontSize=10;fillColor=#e1d5e7;strokeColor=#9673a6;" value="TwoInputTransformation&lt;br/&gt;connect/join/coGroup" vertex="1">
+  <mxGeometry height="70" width="360" x="460" y="366" as="geometry" />
+</mxCell>
+        <mxCell id="c-15" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontSize=10;fillColor=#e1d5e7;strokeColor=#9673a6;" value="PartitionTransformation&lt;br/&gt;keyBy/rebalance/…（无算子）" vertex="1">
+  <mxGeometry height="70" width="360" x="850" y="366" as="geometry" />
+</mxCell>
+        <mxCell id="c-16" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontSize=10;fillColor=#e1d5e7;strokeColor=#9673a6;" value="SourceTransformation&lt;br/&gt;FLIP-27 / Legacy" vertex="1">
+  <mxGeometry height="70" width="360" x="1240" y="366" as="geometry" />
+</mxCell>
+        <mxCell id="c-17" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontSize=10;fillColor=#e1d5e7;strokeColor=#9673a6;" value="SinkTransformation&lt;br/&gt;Sink V2 / Legacy" vertex="1">
+  <mxGeometry height="70" width="360" x="1630" y="366" as="geometry" />
+</mxCell>
+        <mxCell id="c-18" parent="1" style="rounded=1;whiteSpace=wrap;html=1;opacity=40;fontSize=11;fillColor=#d5e8d4;strokeColor=#82b366;" value="" vertex="1">
+  <mxGeometry height="140" width="1980" x="40" y="490" as="geometry" />
+</mxCell>
+        <mxCell id="c-19" parent="1" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;rounded=0;fontSize=13;" value="&lt;b&gt;③ StreamGraph（客户端）：StreamNode / StreamEdge + 虚拟分区节点&lt;/b&gt;" vertex="1">
+  <mxGeometry height="30" width="600" x="56" y="494" as="geometry" />
+</mxCell>
+        <mxCell id="c-20" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontSize=10;fillColor=#d5e8d4;strokeColor=#82b366;" value="StreamGraphGenerator&lt;br/&gt;Transformation → StreamNode" vertex="1">
+  <mxGeometry height="70" width="610" x="70" y="536" as="geometry" />
+</mxCell>
+        <mxCell id="c-21" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontSize=10;fillColor=#d5e8d4;strokeColor=#82b366;" value="虚拟分区节点&lt;br/&gt;addVirtualPartitionNode" vertex="1">
+  <mxGeometry height="70" width="610" x="710" y="536" as="geometry" />
+</mxCell>
+        <mxCell id="c-22" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontSize=10;fillColor=#d5e8d4;strokeColor=#82b366;" value="StreamEdge&lt;br/&gt;携带 StreamPartitioner" vertex="1">
+  <mxGeometry height="70" width="610" x="1350" y="536" as="geometry" />
+</mxCell>
+        <mxCell id="c-23" parent="1" style="rounded=1;whiteSpace=wrap;html=1;opacity=40;fontSize=11;fillColor=#d5e8d4;strokeColor=#82b366;" value="" vertex="1">
+  <mxGeometry height="140" width="1980" x="40" y="650" as="geometry" />
+</mxCell>
+        <mxCell id="c-24" parent="1" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;rounded=0;fontSize=13;" value="&lt;b&gt;④ JobGraph（客户端产出 → 提交信封）：&lt;u&gt;算子链在这里合并&lt;/u&gt;&lt;/b&gt;" vertex="1">
+  <mxGeometry height="30" width="600" x="56" y="654" as="geometry" />
+</mxCell>
+        <mxCell id="c-25" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontSize=10;fillColor=#d5e8d4;strokeColor=#82b366;" value="StreamingJobGraphGenerator&lt;br/&gt;&lt;b&gt;setChaining / createChain&lt;/b&gt;" vertex="1">
+  <mxGeometry height="70" width="610" x="70" y="696" as="geometry" />
+</mxCell>
+        <mxCell id="c-26" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontSize=10;fillColor=#d5e8d4;strokeColor=#82b366;" value="JobVertex&lt;br/&gt;数 ≠ 算子数" vertex="1">
+  <mxGeometry height="70" width="610" x="710" y="696" as="geometry" />
+</mxCell>
+        <mxCell id="c-27" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontSize=10;fillColor=#d5e8d4;strokeColor=#82b366;" value="JobEdge + DistributionPattern&lt;br/&gt;POINTWISE / ALL_TO_ALL" vertex="1">
+  <mxGeometry height="70" width="610" x="1350" y="696" as="geometry" />
+</mxCell>
+        <mxCell id="c-28" parent="1" style="rounded=1;whiteSpace=wrap;html=1;opacity=40;fontSize=11;fillColor=#e1d5e7;strokeColor=#9673a6;" value="" vertex="1">
+  <mxGeometry height="140" width="1980" x="40" y="810" as="geometry" />
+</mxCell>
+        <mxCell id="c-29" parent="1" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;rounded=0;fontSize=13;" value="&lt;b&gt;⑤ ExecutionGraph（AM 内，JobMaster 持有）&lt;/b&gt;" vertex="1">
+  <mxGeometry height="30" width="600" x="56" y="814" as="geometry" />
+</mxCell>
+        <mxCell id="c-30" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontSize=10;fillColor=#e1d5e7;strokeColor=#9673a6;" value="ExecutionJobVertex&lt;br/&gt;1 : 1 JobVertex" vertex="1">
+  <mxGeometry height="70" width="610" x="70" y="856" as="geometry" />
+</mxCell>
+        <mxCell id="c-31" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontSize=10;fillColor=#e1d5e7;strokeColor=#9673a6;" value="ExecutionVertex&lt;br/&gt;按并行度展开" vertex="1">
+  <mxGeometry height="70" width="610" x="710" y="856" as="geometry" />
+</mxCell>
+        <mxCell id="c-32" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontSize=10;fillColor=#e1d5e7;strokeColor=#9673a6;" value="Execution&lt;br/&gt;一次尝试 + 状态机" vertex="1">
+  <mxGeometry height="70" width="610" x="1350" y="856" as="geometry" />
+</mxCell>
+        <mxCell id="c-33" parent="1" style="rounded=1;whiteSpace=wrap;html=1;opacity=40;fontSize=11;fillColor=#ffe6cc;strokeColor=#d79b00;" value="" vertex="1">
+  <mxGeometry height="250" width="1980" x="40" y="970" as="geometry" />
+</mxCell>
+        <mxCell id="c-34" parent="1" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;rounded=0;fontSize=13;" value="&lt;b&gt;⑥ 运行时（TM 容器）：StreamTask 的 mailbox 线程&lt;/b&gt;" vertex="1">
+  <mxGeometry height="30" width="600" x="56" y="974" as="geometry" />
+</mxCell>
+        <mxCell id="c-35" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontSize=10;fillColor=#ffe6cc;strokeColor=#d79b00;" value="&lt;b&gt;StreamTask&lt;/b&gt;（mailbox 线程）&lt;br/&gt;processInput → runMailboxLoop" vertex="1">
+  <mxGeometry height="80" width="460" x="70" y="1020" as="geometry" />
+</mxCell>
+        <mxCell id="c-36" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontSize=10;fillColor=#ffe6cc;strokeColor=#d79b00;" value="&lt;b&gt;OperatorChain&lt;/b&gt;&lt;br/&gt;链内直传，不过网络" vertex="1">
+  <mxGeometry height="80" width="460" x="557" y="1020" as="geometry" />
+</mxCell>
+        <mxCell id="c-37" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontSize=10;fillColor=#ffe6cc;strokeColor=#d79b00;" value="&lt;b&gt;StreamOperator&lt;/b&gt; 实例&lt;br/&gt;StreamMap / StreamFilter / ProcessOperator / WindowOperator …" vertex="1">
+  <mxGeometry height="80" width="460" x="1044" y="1020" as="geometry" />
+</mxCell>
+        <mxCell id="c-38" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontSize=10;fillColor=#ffe6cc;strokeColor=#d79b00;" value="&lt;b&gt;RecordWriter&lt;/b&gt; → ResultPartition&lt;br/&gt;断链处才走网络" vertex="1">
+  <mxGeometry height="80" width="460" x="1531" y="1020" as="geometry" />
+</mxCell>
+        <mxCell id="c-39" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontSize=11;fillColor=#ffffff;strokeColor=#d79b00;" value="&lt;b&gt;三大部分同构&lt;/b&gt;：Source = &lt;b&gt;SourceOperator&lt;/b&gt;（pull：emitNext → reader.pollNext）　|　Operator = 上表各算子　|　Sink = &lt;b&gt;SinkWriterOperator&lt;/b&gt; + &lt;b&gt;CommitterOperator&lt;/b&gt;（两阶段提交）" vertex="1">
+  <mxGeometry height="96" width="1930" x="70" y="1110" as="geometry" />
+</mxCell>
+        <mxCell id="c-40" parent="1" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;rounded=0;fontSize=11;" value="" vertex="1">
+  <mxGeometry height="1" width="120" x="90" y="300" as="geometry" />
+</mxCell>
+        <mxCell id="c-41" parent="1" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;rounded=0;fontSize=11;" value="" vertex="1">
+  <mxGeometry height="1" width="120" x="90" y="366" as="geometry" />
+</mxCell>
+        <mxCell id="e-42" edge="1" parent="1" source="c-40" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;fontSize=10;exitX=0.5;exitY=1.0;exitDx=0;exitDy=0;entryX=0.5;entryY=0.0;entryDx=0;entryDy=0;" target="c-41" value="">
+  <mxGeometry relative="1" as="geometry" />
+</mxCell>
+        <mxCell id="l-43" connectable="0" parent="e-42" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];" value="transform()" vertex="1">
+  <mxGeometry relative="1" x="0.05" y="2" as="geometry"><mxPoint as="offset" /></mxGeometry>
+</mxCell>
+        <mxCell id="c-44" parent="1" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;rounded=0;fontSize=11;" value="" vertex="1">
+  <mxGeometry height="1" width="120" x="640" y="436" as="geometry" />
+</mxCell>
+        <mxCell id="c-45" parent="1" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;rounded=0;fontSize=11;" value="" vertex="1">
+  <mxGeometry height="1" width="120" x="640" y="536" as="geometry" />
+</mxCell>
+        <mxCell id="e-46" edge="1" parent="1" source="c-44" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;fontSize=10;exitX=0.5;exitY=1.0;exitDx=0;exitDy=0;entryX=0.5;entryY=0.0;entryDx=0;entryDy=0;" target="c-45" value="">
+  <mxGeometry relative="1" as="geometry" />
+</mxCell>
+        <mxCell id="l-47" connectable="0" parent="e-46" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];" value="StreamGraphGenerator" vertex="1">
+  <mxGeometry relative="1" x="0.05" y="2" as="geometry"><mxPoint as="offset" /></mxGeometry>
+</mxCell>
+        <mxCell id="c-48" parent="1" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;rounded=0;fontSize=11;" value="" vertex="1">
+  <mxGeometry height="1" width="120" x="1240" y="606" as="geometry" />
+</mxCell>
+        <mxCell id="c-49" parent="1" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;rounded=0;fontSize=11;" value="" vertex="1">
+  <mxGeometry height="1" width="120" x="1240" y="696" as="geometry" />
+</mxCell>
+        <mxCell id="e-50" edge="1" parent="1" source="c-48" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;fontSize=10;exitX=0.5;exitY=1.0;exitDx=0;exitDy=0;entryX=0.5;entryY=0.0;entryDx=0;entryDy=0;" target="c-49" value="">
+  <mxGeometry relative="1" as="geometry" />
+</mxCell>
+        <mxCell id="l-51" connectable="0" parent="e-50" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];" value="StreamingJobGraphGenerator" vertex="1">
+  <mxGeometry relative="1" x="0.05" y="2" as="geometry"><mxPoint as="offset" /></mxGeometry>
+</mxCell>
+        <mxCell id="c-52" parent="1" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;rounded=0;fontSize=11;" value="" vertex="1">
+  <mxGeometry height="1" width="120" x="640" y="766" as="geometry" />
+</mxCell>
+        <mxCell id="c-53" parent="1" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;rounded=0;fontSize=11;" value="" vertex="1">
+  <mxGeometry height="1" width="120" x="640" y="856" as="geometry" />
+</mxCell>
+        <mxCell id="e-54" edge="1" parent="1" source="c-52" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;fontSize=10;exitX=0.5;exitY=1.0;exitDx=0;exitDy=0;entryX=0.5;entryY=0.0;entryDx=0;entryDy=0;" target="c-53" value="">
+  <mxGeometry relative="1" as="geometry" />
+</mxCell>
+        <mxCell id="l-55" connectable="0" parent="e-54" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];" value="buildGraph（AM 侧）" vertex="1">
+  <mxGeometry relative="1" x="0.05" y="2" as="geometry"><mxPoint as="offset" /></mxGeometry>
+</mxCell>
+        <mxCell id="c-56" parent="1" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;rounded=0;fontSize=11;" value="" vertex="1">
+  <mxGeometry height="1" width="120" x="1240" y="926" as="geometry" />
+</mxCell>
+        <mxCell id="c-57" parent="1" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;rounded=0;fontSize=11;" value="" vertex="1">
+  <mxGeometry height="1" width="120" x="1240" y="1020" as="geometry" />
+</mxCell>
+        <mxCell id="e-58" edge="1" parent="1" source="c-56" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;fontSize=10;exitX=0.5;exitY=1.0;exitDx=0;exitDy=0;entryX=0.5;entryY=0.0;entryDx=0;entryDy=0;" target="c-57" value="">
+  <mxGeometry relative="1" as="geometry" />
+</mxCell>
+        <mxCell id="l-59" connectable="0" parent="e-58" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];" value="调度 + 部署（见 scheduling 主题）" vertex="1">
+  <mxGeometry relative="1" x="0.05" y="2" as="geometry"><mxPoint as="offset" /></mxGeometry>
+</mxCell>
+        <mxCell id="c-60" parent="1" style="rounded=1;whiteSpace=wrap;html=1;opacity=60;fontSize=11;fillColor=#f5f5f5;strokeColor=#666666;" value="" vertex="1">
+  <mxGeometry height="1120" width="400" x="2060" y="100" as="geometry" />
+</mxCell>
+        <mxCell id="c-61" parent="1" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;rounded=0;fontSize=14;" value="&lt;b&gt;三条贯穿机制&lt;/b&gt;" vertex="1">
+  <mxGeometry height="34" width="368" x="2076" y="106" as="geometry" />
+</mxCell>
+        <mxCell id="c-62" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontSize=10;fillColor=#ffffff;strokeColor=#666666;" value="&lt;b&gt;① 类型信息&lt;/b&gt;&lt;br/&gt;每个算子都要推断输出类型（决定序列化器）；&lt;br/&gt;lambda 常退化成 GenericType → Kryo。&lt;br/&gt;用 .returns(Types.TUPLE(...)) 或具名类修复。" vertex="1">
+  <mxGeometry height="200" width="368" x="2076" y="150" as="geometry" />
+</mxCell>
+        <mxCell id="c-63" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontSize=10;fillColor=#ffffff;strokeColor=#666666;" value="&lt;b&gt;② Keyed state 与定时器&lt;/b&gt;&lt;br/&gt;keyed state：getRuntimeContext().getState(...)&lt;br/&gt;定时器：InternalTimerService（key group 分片优先队列）&lt;br/&gt;window timer 名 = &quot;window-timers&quot;，process timer 名 = &quot;user-timers&quot;&lt;br/&gt;★ 非 keyed 流注册定时器直接抛异常" vertex="1">
+  <mxGeometry height="260" width="368" x="2076" y="366" as="geometry" />
+</mxCell>
+        <mxCell id="c-64" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontSize=10;fillColor=#ffffff;strokeColor=#666666;" value="&lt;b&gt;③ 并行度与 KeyGroup 解耦&lt;/b&gt;&lt;br/&gt;key → murmurHash % maxParallelism = keyGroup&lt;br/&gt;keyGroup → keyGroup * parallelism / maxParallelism = subtask&lt;br/&gt;maxParallelism 定了不能改（改了 state 恢复不了），parallelism 随便调" vertex="1">
+  <mxGeometry height="260" width="368" x="2076" y="642" as="geometry" />
+</mxCell>
+        <mxCell id="c-65" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontSize=10;fillColor=#ffffff;strokeColor=#666666;" value="&lt;b&gt;图的维护约定&lt;/b&gt;&lt;br/&gt;曲边方框 = 对象 / 组件&lt;br/&gt;直角方框 = 方法或动作&lt;br/&gt;浅色横带 = 所在层&lt;br/&gt;&lt;br/&gt;改动本图后重新导出：&lt;br/&gt;drawio --user-data-dir=/tmp/drawio-cli-profile \&lt;br/&gt;&amp;nbsp; --export --format png --scale 1.5 \&lt;br/&gt;&amp;nbsp; --output x.png x.drawio" vertex="1">
+  <mxGeometry height="296" width="368" x="2076" y="918" as="geometry" />
+</mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

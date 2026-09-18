@@ -55,7 +55,7 @@
 | [`scheduling/`](scheduling/) | 作业调度：调度策略、Slot 分配、ResourceManager、failover | ✅ 已完成 |
 | [`memory/`](memory/) | 内存管理：MemoryManager、NetworkBufferPool、托管内存模型 | ⬜ 待开始 |
 | [`rpc/`](rpc/) | 组件通信：RPC 框架（Pekko）、Akka 到 Pekko 的迁移、组件间协议 | ⬜ 待开始 |
-| [`functions/`](functions/) | 处理函数：StreamOperator、OperatorChain、UDF 生命周期 | ⬜ 待开始 |
+| [`datastream/`](datastream/) | DataStream API 算子：Source / Operator / Sink 三层算子、函数族谱、算子链、类型推断、分区器、连接器 | ✅ 已完成 |
 | [`window-watermark/`](window-watermark/) | 窗口和水位线：WindowAssigner、Trigger、Evictor、Watermark 传播 | ⬜ 待开始 |
 | [`state-fault-tolerance/`](state-fault-tolerance/) | 状态与容错：KeyedState / OperatorState、StateBackend、Checkpoint、Savepoint | ⬜ 待开始 |
 
@@ -117,15 +117,19 @@
 
 **想弄清楚的问题**：Akka 到 Pekko 的迁移是怎么做到对上层透明的？`mainThreadExecutor` 为什么能保证组件不被并发调用？
 
-### 2.5 `functions/` — 处理函数 ⬜
+### 2.5 `datastream/` — DataStream API 算子 ✅
 
-**关注点**：用户写的 `MapFunction` / `ProcessFunction` 怎么被包装成算子、怎么被串成算子链、生命周期由谁驱动。
+**关注点**：你在 DataStream API 里调用的每一个算子（`map` / `filter` / `process` / `window` / `join` / `keyBy` / 各种 Sink），在 Flink 内部**到底是什么类、跑在哪、状态放在哪**；以及 Source / Operator / Sink 三大部分各自的抽象与生命周期。
 
-**源码入口**：<a href="../../../flink-1.20-source/flink-streaming-java/src/main/java/org/apache/flink/streaming/api/operators/StreamOperator.java#L47" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">StreamOperator</code></a>（算子接口）→ <a href="../../../flink-1.20-source/flink-streaming-java/src/main/java/org/apache/flink/streaming/api/operators/AbstractUdfStreamOperator.java#L50" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">AbstractUdfStreamOperator</code></a>（UDF 包装）→ <a href="../../../flink-1.20-source/flink-streaming-java/src/main/java/org/apache/flink/streaming/api/operators/OneInputStreamOperator.java#L33" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">OneInputStreamOperator</code></a>（单输入算子）→ <a href="../../../flink-1.20-source/flink-streaming-java/src/main/java/org/apache/flink/streaming/runtime/tasks/StreamTask.java#L199" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">StreamTask</code></a>（任务执行骨架）→ <a href="../../../flink-1.20-source/flink-streaming-java/src/main/java/org/apache/flink/streaming/runtime/tasks/OperatorChain.java#L109" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">OperatorChain</code></a> / <a href="../../../flink-1.20-source/flink-streaming-java/src/main/java/org/apache/flink/streaming/runtime/tasks/RegularOperatorChain.java#L52" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">RegularOperatorChain</code></a>（算子链）
+**文档结构**：1 篇总体架构（[`datastream-api-architecture.md`](datastream/datastream-api-architecture.md)）+ 9 篇按算子大类拆分的子文档 + 3 张架构图 + **22 个可运行 demo**（大部分本地 MiniCluster 实跑验证）。
 
-**关键动作**：<a href="../../../flink-1.20-source/flink-streaming-java/src/main/java/org/apache/flink/streaming/runtime/tasks/StreamTask.java#L637" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">StreamTask.processInput()</code></a> —— 一个 Task 的主循环入口
+**源码入口**：<a href="../../../flink-1.20-source/flink-streaming-java/src/main/java/org/apache/flink/streaming/api/datastream/DataStream.java#L130" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">DataStream</code></a>（API 层句柄）→ <a href="../../../flink-1.20-source/flink-core/src/main/java/org/apache/flink/api/dag/Transformation.java#L111" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">Transformation</code></a>（逻辑图元数据）→ <a href="../../../flink-1.20-source/flink-streaming-java/src/main/java/org/apache/flink/streaming/api/graph/StreamGraphGenerator.java#L310" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">StreamGraphGenerator.generate()</code></a> → <a href="../../../flink-1.20-source/flink-streaming-java/src/main/java/org/apache/flink/streaming/api/graph/StreamingJobGraphGenerator.java#L245" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">StreamingJobGraphGenerator.createJobGraph()</code></a>（算子链）→ <a href="../../../flink-1.20-source/flink-streaming-java/src/main/java/org/apache/flink/streaming/api/operators/StreamOperator.java#L47" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">StreamOperator</code></a>（运行时算子）→ <a href="../../../flink-1.20-source/flink-streaming-java/src/main/java/org/apache/flink/streaming/api/operators/AbstractUdfStreamOperator.java#L50" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">AbstractUdfStreamOperator</code></a>（UDF 包装）→ <a href="../../../flink-1.20-source/flink-streaming-java/src/main/java/org/apache/flink/streaming/runtime/tasks/StreamTask.java#L637" style="color:#0969da"><code style="color:#0969da;background:transparent;border:none">StreamTask.processInput()</code></a>（驱动主循环）
 
-**想弄清楚的问题**：`open()` / `initializeState()` / `close()` 的调用时机与顺序？算子链内一条记录是怎么直接传给下一个算子而不过网络的？
+**一个必须记住的坑**：运行时算子在**两个包**里 ——
+① `streaming/api/operators/`：UDF 类算子（`StreamMap` / `StreamFlatMap` / `StreamFilter` / `ProcessOperator` / `KeyedProcessOperator` / `co/*` / `async/AsyncWaitOperator` / `SourceOperator`）
+② `streaming/runtime/operators/`：基础与运行时算子（`windowing/WindowOperator` / `windowing/EvictingWindowOperator` / `sink/SinkWriterOperator` / `sink/CommitterOperator` / `TimestampsAndWatermarksOperator`）
+
+**想弄清楚的问题**：为什么 `map → filter → print` 只生成 1 个 `JobVertex`？lambda 里返回 `Tuple2` 为什么必须写 `.returns(...)`？`keyBy` 之后 `JobVertex` 为什么变多？`key → subtask` 到底怎么算的？
 
 ### 2.6 `window-watermark/` — 窗口与水位线 ⬜
 
@@ -161,7 +165,7 @@
 | [`scheduling/`](scheduling/) | 作业调度 | ✅ 已完成 | 1 篇正文 + 2 张图 |
 | [`memory/`](memory/) | 内存管理 | ⬜ 待开始 | 同上 |
 | [`rpc/`](rpc/) | 组件通信 | ⬜ 待开始 | 同上 |
-| [`functions/`](functions/) | 处理函数 | ⬜ 待开始 | 同上 |
+| [`datastream/`](datastream/) | DataStream API 算子 | ✅ 已完成 | 1 篇总览 + 9 篇子文档 + 3 张图 + 22 个可运行 demo |
 | [`window-watermark/`](window-watermark/) | 窗口与水位线 | ⬜ 待开始 | 同上 |
 | [`state-fault-tolerance/`](state-fault-tolerance/) | 状态与容错 | ⬜ 待开始 | 同上 |
 | [`../assets/`](../assets/) | 图与 drawio 源文件 | — | **所有主题共用**：图不放文档目录，统一归档到这里 |
@@ -187,6 +191,28 @@
 | [`job-scheduling-flow.drawio`](../assets/job-scheduling-flow.drawio) · [`.png`](../assets/job-scheduling-flow.png) | 图 · 源文件 + 导出 | 调度与执行总览架构图：**① JobMaster 调度栈 / ② ResourceManager / ③ TaskManager** 三栏 + **④ 失败与重调度回路**，底部附图例 |
 | [`slot-allocation-deploy-flow.drawio`](../assets/slot-allocation-deploy-flow.drawio) · [`.png`](../assets/slot-allocation-deploy-flow.png) | 图 · 源文件 + 导出 | Slot 申请与 Task 部署时序图：5 条泳道（JobMaster 主线程 / SlotPool / ResourceManager / YARN / TaskManager）× 16 步，标出三套 RPC 的方向、两次 all-or-nothing、两处版本校验 |
 
+### 3.4 `datastream/` 下的每个文件
+
+| 文件 | 类型 | 作用 |
+|---|---|---|
+| [`README.md`](datastream/README.md) | 导航 | 文档地图 + **算子总表**（API → 函数接口 → 底层算子 → demo 四列对照），共 8 张映射表 |
+| [`datastream-api-architecture.md`](datastream/datastream-api-architecture.md) | 正文 · 总览 | 五层架构（API 层 → Transformation DAG → StreamGraph → JobGraph → 运行时算子）+ Source/Operator/Sink 三大支柱 + 全算子映射表 + 算子链 / 类型推断 / 并行度与 KeyGroup 三大机制 |
+| [`basic-functions.md`](datastream/basic-functions.md) | 正文 · 子文档 | `MapFunction` / `FlatMapFunction` / `FilterFunction` 的契约与 `StreamMap` / `StreamFlatMap` / `StreamFilter` 实现；`TimestampedCollector` 单一 `reuse` 陷阱；类型推断两条失败路径 |
+| [`process-functions.md`](datastream/process-functions.md) | 正文 · 子文档 | `ProcessFunction` 家族四条支线；定时器机制（`InternalTimerServiceImpl` 按键组优先队列 + watermark 推进触发）；侧输出；广播状态 |
+| [`window-functions.md`](datastream/window-functions.md) | 正文 · 子文档 | `WindowFunction` / `AllWindowFunction` / `ProcessWindowFunction`；`WindowAssigner` / `Trigger` / `Evictor`；`WindowOperator` vs `EvictingWindowOperator`；增量聚合 |
+| [`rich-functions.md`](datastream/rich-functions.md) | 正文 · 子文档 | `RichFunction` 家族、`AbstractRichFunction`、生命周期时序（`initializeState` 早于 `open`）、`RuntimeContext`、累加器与指标 |
+| [`async-io.md`](datastream/async-io.md) | 正文 · 子文档 | `AsyncFunction` / `RichAsyncFunction`、`AsyncWaitOperator` 两种队列、`capacity` 与 timeout、checkpoint 重放语义（at-least-once） |
+| [`join-functions.md`](datastream/join-functions.md) | 正文 · 子文档 | `JoinFunction` / `FlatJoinFunction` / `CoGroupFunction` / `ProcessJoinFunction`；`JoinedStreams` 被改写成 `CoGroupedStreams`；`IntervalJoinOperator` 双 MapState + 事件时间 |
+| [`keyby-and-partitioners.md`](datastream/keyby-and-partitioners.md) | 正文 · 子文档 | `key → keyGroup → subtask` 三跳公式与实测；八个 `StreamPartitioner` 的分布对照（跑两遍区分确定性/随机性） |
+| [`sources-and-sinks.md`](datastream/sources-and-sinks.md) | 正文 · 子文档 | FLIP-27 `Source`/`SplitEnumerator`/`SourceReader` 三段式协议 vs 旧 `SourceFunction`；Sink V2 `Sink`/`SinkWriter`/`Committer` 两阶段提交 vs 旧 `SinkFunction` |
+| [`connectors.md`](datastream/connectors.md) | 正文 · 子文档 | JDBC / Kafka / HBase / MySQL 四类连接器：依赖坐标、完整代码、**可验证边界**（HBase 在 1.20 无官方连接器） |
+| [`datastream-api-architecture.drawio`](../assets/datastream-api-architecture.drawio) · [`.png`](../assets/datastream-api-architecture.png) | 图 · 源文件 + 导出 | DataStream API 五层架构图（3660×1798） |
+| [`function-operator-mapping.drawio`](../assets/function-operator-mapping.drawio) · [`.png`](../assets/function-operator-mapping.png) | 图 · 源文件 + 导出 | 函数接口 → 底层算子映射图（3987×2392） |
+| [`source-sink-architecture.drawio`](../assets/source-sink-architecture.drawio) · [`.png`](../assets/source-sink-architecture.png) | 图 · 源文件 + 导出 | Source / Sink 抽象与生命周期对照图（3810×1723） |
+
+**配套代码**：`learn-flink/src/main/java/com/jiaqiz/flink/` 下的 `operators/`、`process/`、`window/`、`rich/`、`async/`、`join/`、`keyed/`、`partitioner/`、`source/`、`sink/` 共 22 个 demo，运行方式统一为
+`mvn -o -pl learn-flink exec:exec -Dmain.class=com.jiaqiz.flink.<pkg>.<Demo>`。
+
 > **图的维护方式**：图统一放在 `doc/assets/`，与文档分离。改完 `.drawio` 后重新导出同名 `.png`，文档里的图片会自动更新。
 > 导出命令：`drawio --export --format png --scale 2 --border 10 --output x.png x.drawio`
 >
@@ -209,6 +235,7 @@
 4. 读累了看 **`three-graphs-wordcount.md`**，用最小的例子把三张图的差异一次性对齐
 5. 最后跑一遍 `learn-flink/src/main/java/com/jiaqiz/flink/sample/GraphComparisonJob.java`，亲手把三张图打印出来
 6. 进入调度主题：先看 **`scheduling/job-scheduling-flow.png`**（三栏总览），再读 **`job-scheduling-and-execution.md`**，配 **`slot-allocation-deploy-flow.png`** 理解"一次 `allocateSlotsAndDeploy()` 到底走了几趟 RPC"
+7. 进入算子主题：先看 **`datastream/datastream-api-architecture.png`**（五层架构），再读 **`datastream/datastream-api-architecture.md`** 建立"API 对象 → Transformation → StreamGraph → 运行时算子"的空间感，最后按算子大类挑子文档；每个算子都跑一遍 `mvn -o -pl learn-flink exec:exec -Dmain.class=com.jiaqiz.flink.<pkg>.<Demo>` 对照真实输出
 
 ### 4.2 环境要求
 

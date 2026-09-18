@@ -1,0 +1,29 @@
+flink datastrema api 覆盖日常开发的全部算子
+
+1. datastream-api 基础架构
+
+Operator算子：
+
+2. 三个基本函数 MapFunction FlatMapFunction filterFunction
+
+3. ProcessFunction 家族
+
+processfunction coprocessfunction processwindowfunction processallwindowfunction 。。。
+
+4. WindowFunction 窗口函数
+
+5. RichFunction 富函数集
+
+6. AsyncFunction 异步相关
+
+7. 可以用于Join的function
+
+8. keyedfunction 和常用的Partitioner
+
+source/sink：
+
+jdbc source/sink
+kafka source/sink
+hbase source/sink
+
+mysql source/sink

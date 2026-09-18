@@ -1,0 +1,70 @@
+<mxfile host="Electron">
+  <diagram name="Source 与 Sink 架构" id="ds-169">
+    <mxGraphModel dx="1600" dy="1200" grid="0" gridSize="10" guides="0" tooltips="1" connect="1" arrows="1" fold="1" page="0" pageScale="1" pageWidth="2600" pageHeight="1600" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="c-149" parent="1" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;rounded=0;fontSize=16;" value="&lt;b&gt;Source 与 Sink 的两代 API 架构（FLIP-27 / Sink V2 vs 旧 API）&lt;/b&gt;" vertex="1">
+  <mxGeometry height="40" width="2520" x="40" y="40" as="geometry" />
+</mxCell>
+        <mxCell id="c-150" parent="1" style="rounded=1;whiteSpace=wrap;html=1;opacity=60;fontSize=11;fillColor=#dae8fc;strokeColor=#6c8ebf;" value="" vertex="1">
+  <mxGeometry height="700" width="1240" x="40" y="100" as="geometry" />
+</mxCell>
+        <mxCell id="c-151" parent="1" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;rounded=0;fontSize=14;" value="&lt;b&gt;Source：两代 API&lt;/b&gt;" vertex="1">
+  <mxGeometry height="34" width="1200" x="56" y="106" as="geometry" />
+</mxCell>
+        <mxCell id="c-152" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontSize=10;fillColor=#ffffff;strokeColor=#6c8ebf;" value="&lt;b&gt;新：FLIP-27（pull 模式）&lt;/b&gt;&lt;br/&gt;&lt;br/&gt;Source（工厂 + 元数据）&lt;br/&gt;&amp;nbsp;&amp;nbsp;├─ getBoundedness()&lt;br/&gt;&amp;nbsp;&amp;nbsp;├─ createEnumerator() → &lt;b&gt;SplitEnumerator&lt;/b&gt;（JM 侧）&lt;br/&gt;&amp;nbsp;&amp;nbsp;│&amp;nbsp;&amp;nbsp;&amp;nbsp;&amp;nbsp;handleSplitRequest / assignSplits / snapshotState&lt;br/&gt;&amp;nbsp;&amp;nbsp;└─ createReader() → &lt;b&gt;SourceReader&lt;/b&gt;（TM 侧）&lt;br/&gt;&amp;nbsp;&amp;nbsp;&amp;nbsp;&amp;nbsp;&amp;nbsp;&amp;nbsp;start() / pollNext(ReaderOutput)&lt;br/&gt;&lt;br/&gt;SourceEvent / SourceSplit / ReaderOutput" vertex="1">
+  <mxGeometry height="300" width="580" x="70" y="156" as="geometry" />
+</mxCell>
+        <mxCell id="c-153" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontSize=10;fillColor=#ffffff;strokeColor=#6c8ebf;" value="&lt;b&gt;旧：SourceFunction（push 模式）&lt;/b&gt;&lt;br/&gt;&lt;br/&gt;SourceFunction&lt;T&gt;&lt;br/&gt;&amp;nbsp;&amp;nbsp;├─ run(SourceContext) ← 用户自己写循环&lt;br/&gt;&amp;nbsp;&amp;nbsp;└─ cancel()&lt;br/&gt;&lt;br/&gt;RichSourceFunction / ParallelSourceFunction&lt;br/&gt;（空的标记接口，不影响并行度）&lt;br/&gt;&lt;br/&gt;★ 无 split 级状态，恢复只能整体重放" vertex="1">
+  <mxGeometry height="300" width="590" x="670" y="156" as="geometry" />
+</mxCell>
+        <mxCell id="c-154" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontSize=10;fillColor=#ffe6cc;strokeColor=#d79b00;" value="&lt;b&gt;运行时&lt;/b&gt;：SourceOperator&lt;br/&gt;emitNext(output) → sourceReader.pollNext()&lt;br/&gt;跑在 &lt;b&gt;mailbox 线程&lt;/b&gt;；split 状态存 operator state" vertex="1">
+  <mxGeometry height="140" width="580" x="70" y="480" as="geometry" />
+</mxCell>
+        <mxCell id="c-155" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontSize=10;fillColor=#ffe6cc;strokeColor=#d79b00;" value="&lt;b&gt;运行时&lt;/b&gt;：StreamSource + SourceStreamTask&lt;br/&gt;独立线程 LegacySourceFunctionThread 跑 run(ctx)&lt;br/&gt;→ 旧 Source 里可以阻塞" vertex="1">
+  <mxGeometry height="140" width="590" x="670" y="480" as="geometry" />
+</mxCell>
+        <mxCell id="c-156" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontSize=10;fillColor=#ffffff;strokeColor=#6c8ebf;" value="&lt;b&gt;checkpoint 归属&lt;/b&gt;：reader 的 split 状态在 &lt;b&gt;TM 侧 operator state&lt;/b&gt;；enumerator 状态在 &lt;b&gt;JM 侧 SourceCoordinator&lt;/b&gt; → 两条独立快照链" vertex="1">
+  <mxGeometry height="140" width="1190" x="70" y="640" as="geometry" />
+</mxCell>
+        <mxCell id="c-157" parent="1" style="rounded=1;whiteSpace=wrap;html=1;opacity=60;fontSize=11;fillColor=#f8cecc;strokeColor=#b85450;" value="" vertex="1">
+  <mxGeometry height="700" width="1240" x="1320" y="100" as="geometry" />
+</mxCell>
+        <mxCell id="c-158" parent="1" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;rounded=0;fontSize=14;" value="&lt;b&gt;Sink：两代 API&lt;/b&gt;" vertex="1">
+  <mxGeometry height="34" width="1200" x="1336" y="106" as="geometry" />
+</mxCell>
+        <mxCell id="c-159" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontSize=10;fillColor=#ffffff;strokeColor=#b85450;" value="&lt;b&gt;新：Sink V2（写与提交分离）&lt;/b&gt;&lt;br/&gt;&lt;br/&gt;Sink&lt;InputT&gt;&lt;br/&gt;&amp;nbsp;&amp;nbsp;└─ createWriter(WriterInitContext) → &lt;b&gt;SinkWriter&lt;/b&gt;&lt;br/&gt;&amp;nbsp;&amp;nbsp;&amp;nbsp;&amp;nbsp;&amp;nbsp;&amp;nbsp;write / flush / close&lt;br/&gt;StatefulSink → snapshotState(checkpointId)&lt;br/&gt;SupportsCommitter → &lt;b&gt;Committer&lt;/b&gt;.commit(...)&lt;br/&gt;TwoPhaseCommittingSink = 上面两者组合" vertex="1">
+  <mxGeometry height="300" width="580" x="1350" y="156" as="geometry" />
+</mxCell>
+        <mxCell id="c-160" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontSize=10;fillColor=#ffffff;strokeColor=#b85450;" value="&lt;b&gt;旧：SinkFunction&lt;/b&gt;&lt;br/&gt;&lt;br/&gt;SinkFunction&lt;IN&gt;&lt;br/&gt;&amp;nbsp;&amp;nbsp;├─ invoke(IN)&lt;br/&gt;&amp;nbsp;&amp;nbsp;└─ invoke(IN, Context)&lt;br/&gt;RichSinkFunction（open/close）&lt;br/&gt;&lt;br/&gt;★ 要 exactly-once 得自己实现&lt;br/&gt;&amp;nbsp;&amp;nbsp;CheckpointedFunction + CheckpointListener&lt;br/&gt;（或已废弃的 TwoPhaseCommitSinkFunction）" vertex="1">
+  <mxGeometry height="300" width="590" x="1950" y="156" as="geometry" />
+</mxCell>
+        <mxCell id="c-161" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontSize=10;fillColor=#ffe6cc;strokeColor=#d79b00;" value="&lt;b&gt;运行时&lt;/b&gt;：SinkWriterOperator&lt;br/&gt;prepareSnapshotPreBarrier → flush + prepareCommit&lt;br/&gt;snapshotState → writer 状态" vertex="1">
+  <mxGeometry height="140" width="580" x="1350" y="480" as="geometry" />
+</mxCell>
+        <mxCell id="c-162" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontSize=10;fillColor=#ffe6cc;strokeColor=#d79b00;" value="&lt;b&gt;运行时&lt;/b&gt;：CommitterOperator&lt;br/&gt;snapshotState → committable 清单&lt;br/&gt;notifyCheckpointComplete → 真正 commit" vertex="1">
+  <mxGeometry height="140" width="590" x="1950" y="480" as="geometry" />
+</mxCell>
+        <mxCell id="c-163" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontSize=10;fillColor=#ffffff;strokeColor=#b85450;" value="&lt;b&gt;两阶段提交三段时序&lt;/b&gt;：① barrier 之前 prepareCommit（发 committable）→ ② barrier 穿过 snapshotState（存状态/清单）→ ③ checkpoint 完成后 commit&lt;br/&gt;★ 因此“外部系统可见”滞后“checkpoint 完成”一个 RPC 往返" vertex="1">
+  <mxGeometry height="140" width="1190" x="1350" y="640" as="geometry" />
+</mxCell>
+        <mxCell id="c-164" parent="1" style="rounded=1;whiteSpace=wrap;html=1;opacity=60;fontSize=11;fillColor=#f5f5f5;strokeColor=#666666;" value="" vertex="1">
+  <mxGeometry height="340" width="2520" x="40" y="830" as="geometry" />
+</mxCell>
+        <mxCell id="c-165" parent="1" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;rounded=0;fontSize=13;" value="&lt;b&gt;API 入口&lt;/b&gt;" vertex="1">
+  <mxGeometry height="34" width="1200" x="56" y="836" as="geometry" />
+</mxCell>
+        <mxCell id="c-166" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontSize=10;fillColor=#ffffff;strokeColor=#666666;" value="env.fromSource(Source, WatermarkStrategy, name)　← FLIP-27&lt;br/&gt;env.addSource(SourceFunction)　← 旧&lt;br/&gt;env.fromData(...)　← 内部就是 DataGeneratorSource（有界、单调 watermark）&lt;br/&gt;stream.sinkTo(Sink)　← Sink V2（会展开 writer + committer 节点）&lt;br/&gt;stream.addSink(SinkFunction) / stream.print()　← 旧（只有 1 个 StreamSink 节点，总被链化）" vertex="1">
+  <mxGeometry height="270" width="1200" x="60" y="880" as="geometry" />
+</mxCell>
+        <mxCell id="c-167" parent="1" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;rounded=0;fontSize=13;" value="&lt;b&gt;易错点&lt;/b&gt;" vertex="1">
+  <mxGeometry height="34" width="1240" x="1300" y="836" as="geometry" />
+</mxCell>
+        <mxCell id="c-168" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fontSize=10;fillColor=#ffffff;strokeColor=#666666;" value="① Source 忘实现 createReader —— 它来自父接口 SourceReaderFactory&lt;br/&gt;② 在 SourceReader 里起线程 collect → 破坏 mailbox 线程模型&lt;br/&gt;③ 在 addReader 里分配 split → 恢复后重复分配&lt;br/&gt;④ 只实现 createWriter(InitContext) —— 1.20 不会被调用，必须用 WriterInitContext&lt;br/&gt;⑤ 在 Sink 里实现 CheckpointListener —— V2 下不会被调用，应放进 Committer&lt;br/&gt;⑥ 以为 print() 用 Sink V2 —— 走旧 SinkFunction(PrintSinkFunction)" vertex="1">
+  <mxGeometry height="270" width="1240" x="1300" y="880" as="geometry" />
+</mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
