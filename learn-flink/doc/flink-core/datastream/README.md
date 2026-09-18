@@ -109,7 +109,7 @@
 
 ## 三、怎么读这套文档
 
-1. **先看总体架构**：[`datastream-api-architecture.md`](./datastream-api-architecture.md) + 架构图 → 建立"API 对象 → Transformation → StreamGraph → 运行时算子"的空间感；
+1. **先看总体架构**：[`datastream-api-architecture.md`](./datastream-api-architecture.md) + 算子类层次架构图（§1.2）→ 先建立"抽象算子 → 具体实现"的层次感，再看 §1.1 的"API 对象 → Transformation → StreamGraph → 运行时算子"五层旅程；
 2. **再按需读子文档**：每个子文档都是「类清单 → 源码实现 → 易错点 → demo 与真实输出」四段式；
 3. **每个结论都能落到代码**：子文档里的 demo 都能用 `mvn -o -pl learn-flink exec:exec -Dmain.class=...` 跑起来，文档里的输出是**真实运行结果**（未实跑的会显式标注）。
 

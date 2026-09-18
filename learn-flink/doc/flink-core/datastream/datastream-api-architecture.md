@@ -49,11 +49,19 @@
 > ③ **`ExecutionGraph` 在 1.20 是接口**，实现是 `DefaultExecutionGraph`；运行时算子与它完全不同层。
 
 
-## 1.2 总览架构图
+## 1.2 算子类层次架构图（抽象 → 实现）
 
-![DataStream API 五层架构：API 层 → Transformation DAG → StreamGraph → JobGraph → 运行时算子](../../assets/datastream-api-architecture.png)
+![DataStream API 算子类层次：StreamOperator 接口 → AbstractStreamOperator → AbstractUdfStreamOperator → 具体算子（继承 / 实现关系）](../../assets/datastream-api-architecture.png)
 
 > 图源文件：[`datastream-api-architecture.drawio`](../../assets/datastream-api-architecture.drawio)（改图后重新导出同名 PNG 即可）
+>
+> **这张图回答「运行时算子到底怎么分层、谁继承谁」**，而不是"把名字堆成一层"：
+> - **实线空心三角 = `extends`（继承）**，**虚线空心三角 = `implements`（实现接口）**；`StreamOperator` 是接口、`AbstractStreamOperator` / `AbstractUdfStreamOperator` 是抽象类（用文字标注区分，不加底色）；
+> - **加粗类名 = 重点算子**；所有方框**无颜色填充**（白底黑框）。
+> - **三个分叉**：① `AbstractUdfStreamOperator`（最大分支：map/flatMap/filter/process/async/join/window/sink 都从它下来）；② `SourceOperator`（FLIP-27，**不走 UDF 分支**，拉模式）；③ `runtime/operators` 下直接继承 `AbstractStreamOperator` 的 `TimestampsAndWatermarksOperator` / `SinkWriterOperator` / `CommitterOperator`。
+> - 具体算子按**输入接口**分列（`OneInputStreamOperator` 单输入 / `TwoInputStreamOperator` 双输入），类名后标注所属包（`api/operators` vs `runtime/operators`）。
+>
+> 而"一次算子调用从 API 层走到 TM"的五层旅程（`DataStream` → `Transformation` DAG → `StreamGraph` → `JobGraph` → `ExecutionGraph` → 运行时）见 §1.1 的文字版。
 
 ---
 

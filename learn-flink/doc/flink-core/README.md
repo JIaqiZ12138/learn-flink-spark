@@ -206,7 +206,7 @@
 | [`keyby-and-partitioners.md`](datastream/keyby-and-partitioners.md) | 正文 · 子文档 | `key → keyGroup → subtask` 三跳公式与实测；八个 `StreamPartitioner` 的分布对照（跑两遍区分确定性/随机性） |
 | [`sources-and-sinks.md`](datastream/sources-and-sinks.md) | 正文 · 子文档 | FLIP-27 `Source`/`SplitEnumerator`/`SourceReader` 三段式协议 vs 旧 `SourceFunction`；Sink V2 `Sink`/`SinkWriter`/`Committer` 两阶段提交 vs 旧 `SinkFunction` |
 | [`connectors.md`](datastream/connectors.md) | 正文 · 子文档 | JDBC / Kafka / HBase / MySQL 四类连接器：依赖坐标、完整代码、**可验证边界**（HBase 在 1.20 无官方连接器） |
-| [`datastream-api-architecture.drawio`](../assets/datastream-api-architecture.drawio) · [`.png`](../assets/datastream-api-architecture.png) | 图 · 源文件 + 导出 | DataStream API 五层架构图（3660×1798） |
+| [`datastream-api-architecture.drawio`](../assets/datastream-api-architecture.drawio) · [`.png`](../assets/datastream-api-architecture.png) | 图 · 源文件 + 导出 | DataStream API **算子类层次图**：`StreamOperator` 接口 → `AbstractStreamOperator` → `AbstractUdfStreamOperator` → 具体算子（继承/实现关系，2880×1282） |
 | [`function-operator-mapping.drawio`](../assets/function-operator-mapping.drawio) · [`.png`](../assets/function-operator-mapping.png) | 图 · 源文件 + 导出 | 函数接口 → 底层算子映射图（3987×2392） |
 | [`source-sink-architecture.drawio`](../assets/source-sink-architecture.drawio) · [`.png`](../assets/source-sink-architecture.png) | 图 · 源文件 + 导出 | Source / Sink 抽象与生命周期对照图（3810×1723） |
 
@@ -235,7 +235,7 @@
 4. 读累了看 **`three-graphs-wordcount.md`**，用最小的例子把三张图的差异一次性对齐
 5. 最后跑一遍 `learn-flink/src/main/java/com/jiaqiz/flink/sample/GraphComparisonJob.java`，亲手把三张图打印出来
 6. 进入调度主题：先看 **`scheduling/job-scheduling-flow.png`**（三栏总览），再读 **`job-scheduling-and-execution.md`**，配 **`slot-allocation-deploy-flow.png`** 理解"一次 `allocateSlotsAndDeploy()` 到底走了几趟 RPC"
-7. 进入算子主题：先看 **`datastream/datastream-api-architecture.png`**（五层架构），再读 **`datastream/datastream-api-architecture.md`** 建立"API 对象 → Transformation → StreamGraph → 运行时算子"的空间感，最后按算子大类挑子文档；每个算子都跑一遍 `mvn -o -pl learn-flink exec:exec -Dmain.class=com.jiaqiz.flink.<pkg>.<Demo>` 对照真实输出
+7. 进入算子主题：先看 **`datastream/datastream-api-architecture.png`**（算子类层次：`StreamOperator` → 具体算子），再读 **`datastream/datastream-api-architecture.md`** 建立"API 对象 → Transformation → StreamGraph → 运行时算子"的空间感，最后按算子大类挑子文档；每个算子都跑一遍 `mvn -o -pl learn-flink exec:exec -Dmain.class=com.jiaqiz.flink.<pkg>.<Demo>` 对照真实输出
 
 ### 4.2 环境要求
 
