@@ -52,6 +52,7 @@ import static org.apache.flink.util.Preconditions.checkNotNull;
 import static org.apache.flink.util.Preconditions.checkState;
 
 /**
+ * slot 分配器
  * Allocates {@link LogicalSlot}s from physical shared slots.
  *
  * <p>The allocator maintains a shared slot for each {@link ExecutionSlotSharingGroup}. It allocates

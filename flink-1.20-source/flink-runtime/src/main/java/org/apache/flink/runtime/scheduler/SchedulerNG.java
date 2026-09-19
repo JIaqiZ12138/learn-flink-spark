@@ -63,6 +63,7 @@ import java.net.InetSocketAddress;
 import java.util.concurrent.CompletableFuture;
 
 /**
+ * flink 任务调度器Interface
  * Interface for scheduling Flink jobs.
  *
  * <p>Instances are created via {@link SchedulerNGFactory}, and receive a {@link JobGraph} when

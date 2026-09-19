@@ -50,6 +50,7 @@ import java.util.Set;
 import static org.apache.flink.util.Preconditions.checkArgument;
 import static org.apache.flink.util.Preconditions.checkState;
 
+// 每个算子一个StreamNode
 /** Class representing the operators in the streaming programs, with all their properties. */
 @Internal
 public class StreamNode {
